@@ -1,0 +1,6 @@
+import Link from 'next/link'
+import { notFound } from 'next/navigation'
+import { SiteChrome } from '@/components/layout/SiteChrome'
+import { getStory } from '@/lib/newsroom'
+export const dynamic = 'force-dynamic'
+export default async function NewsPage({ params }: { params: Promise<{ id: string }> }) { const id = Number((await params).id); if (!Number.isInteger(id)) notFound(); const story = await getStory(id); if (!story) notFound(); return <SiteChrome><main className="container main"><p className="breadcrumb"><Link href="/">প্রচ্ছদ</Link> / সংবাদ</p><article style={{ maxWidth: 820, margin: '0 auto' }}><div className="section-kicker"><span>সংবাদ</span><i /></div><h1 style={{ fontSize: 'clamp(32px,5vw,58px)', lineHeight: 1.12, margin: '14px 0' }}>{story.titleBn}</h1><p style={{ color: '#777' }}>{story.publishedAt ? new Date(story.publishedAt).toLocaleDateString('bn-BD') : ''} · {story.authorName}</p>{story.imageUrl && <img src={story.imageUrl} alt={story.titleBn} style={{ width: '100%', maxHeight: 520, objectFit: 'cover', margin: '25px 0' }} />}<div style={{ fontSize: 18, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>{story.bodyBn || story.excerptBn}</div></article></main></SiteChrome> }

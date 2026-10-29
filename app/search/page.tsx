@@ -1,0 +1,5 @@
+import Link from 'next/link'
+import { SiteChrome } from '@/components/layout/SiteChrome'
+import { searchStories } from '@/lib/newsroom'
+export const dynamic = 'force-dynamic'
+export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) { const q = (await searchParams).q?.trim() || ''; const stories = q ? await searchStories(q) : []; return <SiteChrome><main className="container main"><div className="section-kicker"><span>অনুসন্ধান ফলাফল</span><i /></div><h1 style={{ fontSize: 32 }}>“{q || 'সব খবর'}”</h1>{!q ? <div className="empty-state"><p>খুঁজতে একটি শব্দ লিখুন।</p></div> : stories.length === 0 ? <div className="empty-state"><p>কোনো সংবাদ পাওয়া যায়নি।</p></div> : <div className="category-list">{stories.map(story => <Link href={`/news/${story.id}`} className="category-story" key={story.id}><div className="story-copy"><h2>{story.titleBn}</h2><p>{story.excerptBn}</p><small>{story.publishedAt ? new Date(story.publishedAt).toLocaleDateString('bn-BD') : ''}</small></div></Link>)}</div>}</main></SiteChrome> }

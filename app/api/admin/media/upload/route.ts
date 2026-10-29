@@ -1,0 +1,6 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { put } from '@vercel/blob'
+import { db } from '@/lib/db'
+import { mediaAssets } from '@/lib/db/schema'
+import { requireAdmin } from '@/lib/admin-auth'
+export async function POST(request: NextRequest) { const session = await requireAdmin(request, undefined, 'news:write'); if (!session) return NextResponse.json({ error: 'Forbidden' }, { status: 403 }); const form = await request.formData(); const file = form.get('file'); if (!(file instanceof File)) return NextResponse.json({ error: 'Image file is required' }, { status: 400 }); if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) return NextResponse.json({ error: 'Only JPG, PNG, and WebP images are supported' }, { status: 400 }); if (file.size > 8 * 1024 * 1024) return NextResponse.json({ error: 'Image must be smaller than 8MB' }, { status: 400 }); const blob = await put(`news/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`, file, { access: 'public', addRandomSuffix: true }); const [asset] = await db.insert(mediaAssets).values({ url: blob.url, filename: file.name.slice(0, 240), mimeType: file.type, sizeBytes: file.size, createdBy: session.sub }).returning(); return NextResponse.json({ asset }, { status: 201 }) }
