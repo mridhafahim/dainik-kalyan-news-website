@@ -35,7 +35,7 @@ import { PageTitle } from '@/components/admin/AdminUi'
 
 type Edition = { id: number; editionDate: string; title: string; status: string }
 type Page = { id: number; pageNumber: number; imagePath: string; width: number; height: number }
-type Shape = 'rect' | 'l' | 't'
+type Shape = 'rect' | 'l' | 't' | 'polygon'
 type Region = {
   id?: number
   pageId?: number
@@ -51,7 +51,7 @@ type Region = {
 }
 type Article = { id: number; titleBn: string }
 
-const shapePoints = (shape: Shape): Array<{ x: number; y: number }> => {
+const templatePoints = (shape: Shape): Array<{ x: number; y: number }> => {
   if (shape === 'l') {
     return [
       { x: 0, y: 0 },
@@ -98,10 +98,14 @@ export default function EpaperAdmin() {
   // Zoom control state
   const [zoom, setZoom] = useState<number>(1.2)
 
-  // Drawing state
+  // Dragging state for Rectangle, L, T
   const [isDrawing, setIsDrawing] = useState(false)
   const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null)
   const [currentPoint, setCurrentPoint] = useState<{ x: number; y: number } | null>(null)
+
+  // Multi-point Polygon state
+  const [polyPoints, setPolyPoints] = useState<Array<{ x: number; y: number }>>([])
+  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null)
 
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -154,6 +158,7 @@ export default function EpaperAdmin() {
   function switchPage(newPageId: number) {
     setPageId(newPageId)
     setSelectedRegionIndex(null)
+    setPolyPoints([])
     void fetch(`/api/epaper?admin=1&edition=${editionId}`)
       .then(res => res.json())
       .then(data => {
@@ -233,7 +238,7 @@ export default function EpaperAdmin() {
           firstNewPageId = savedData.page.id
         }
         uploadedCount++
-        setMessage(`${uploadedCount}/${selectedFiles.length}টি পৃষ্ঠা সফলভাবে আপলোড হয়েছে...`)
+        setMessage(`${uploadedCount}/${selectedFiles.length}টি পৃষ্ঠা আপলোড সম্পন্ন হয়েছে...`)
       } catch (err) {
         setMessage(`আপলোডে সমস্যা হয়েছে: ${err instanceof Error ? err.message : 'ত্রুটি'}`)
         setUploading(false)
@@ -243,7 +248,7 @@ export default function EpaperAdmin() {
 
     setUploading(false)
     setSelectedFiles(null)
-    setMessage('সবগুলো পৃষ্ঠা সফলভাবে যুক্ত হয়েছে! ১ম পৃষ্ঠাটি নিচে ওপেন করা হয়েছে।')
+    setMessage('সব পৃষ্ঠা সফলভাবে যুক্ত হয়েছে! ১ম পৃষ্ঠাটি নিচে প্রদর্শিত হচ্ছে।')
     void loadData(editionId, firstNewPageId)
   }
 
@@ -256,22 +261,45 @@ export default function EpaperAdmin() {
     }
   }
 
+  // Pointer Down Handler
   function handlePointerDown(event: React.PointerEvent) {
     if (event.button !== 0) return
     const pt = getRelativeCoords(event)
     if (!pt) return
+
+    // If Multi-Point Polygon mode is active
+    if (shape === 'polygon') {
+      // Check if clicking near start point to close polygon (threshold ~ 2%)
+      if (polyPoints.length >= 3) {
+        const start = polyPoints[0]
+        const dist = Math.hypot(pt.x - start.x, pt.y - start.y)
+        if (dist < 0.025) {
+          finishPolygon()
+          return
+        }
+      }
+      setPolyPoints(prev => [...prev, pt])
+      return
+    }
+
+    // Otherwise standard drag drawing
     setIsDrawing(true)
     setStartPoint(pt)
     setCurrentPoint(pt)
   }
 
   function handlePointerMove(event: React.PointerEvent) {
-    if (!isDrawing) return
     const pt = getRelativeCoords(event)
-    if (pt) setCurrentPoint(pt)
+    if (!pt) return
+    if (shape === 'polygon') {
+      setHoverPoint(pt)
+    } else if (isDrawing) {
+      setCurrentPoint(pt)
+    }
   }
 
   function handlePointerUp(event: React.PointerEvent) {
+    if (shape === 'polygon') return // Polygon finishes by clicking start point or finish button
     if (!isDrawing || !startPoint) return
     const endPoint = getRelativeCoords(event) || currentPoint
     setIsDrawing(false)
@@ -285,7 +313,6 @@ export default function EpaperAdmin() {
     const width = Math.abs(endPoint.x - startPoint.x)
     const height = Math.abs(endPoint.y - startPoint.y)
 
-    // Ignore accidental clicks
     if (width < 0.015 || height < 0.015) return
 
     const newRegion: Region = {
@@ -295,7 +322,7 @@ export default function EpaperAdmin() {
       width,
       height,
       shapeType: shape,
-      points: shapePoints(shape),
+      points: templatePoints(shape),
       articleId: null,
       targetPageNumber: null,
       targetUrl: null
@@ -303,6 +330,53 @@ export default function EpaperAdmin() {
 
     setRegions(prev => [...prev, newRegion])
     setSelectedRegionIndex(regions.length)
+  }
+
+  // Finish Polygon Function
+  function finishPolygon() {
+    if (polyPoints.length < 3) {
+      setMessage('কমপক্ষে ৩টি পয়েন্ট নির্বাচন করুন')
+      return
+    }
+
+    const xs = polyPoints.map(p => p.x)
+    const ys = polyPoints.map(p => p.y)
+    const minX = Math.min(...xs)
+    const maxX = Math.max(...xs)
+    const minY = Math.min(...ys)
+    const maxY = Math.max(...ys)
+    const width = Math.max(0.015, maxX - minX)
+    const height = Math.max(0.015, maxY - minY)
+
+    // Calculate normalized points relative to the bounding box (0..1)
+    const normalizedPoints = polyPoints.map(p => ({
+      x: Number(((p.x - minX) / width).toFixed(4)),
+      y: Number(((p.y - minY) / height).toFixed(4))
+    }))
+
+    const newRegion: Region = {
+      pageId,
+      x: minX,
+      y: minY,
+      width,
+      height,
+      shapeType: 'polygon',
+      points: normalizedPoints,
+      articleId: null,
+      targetPageNumber: null,
+      targetUrl: null
+    }
+
+    setRegions(prev => [...prev, newRegion])
+    setSelectedRegionIndex(regions.length)
+    setPolyPoints([])
+    setHoverPoint(null)
+    setMessage('বহুভুজ (Polygon) সফলভাবে তৈরি হয়েছে। নিচে সংবাদ লিংক করুন।')
+  }
+
+  function cancelPolygon() {
+    setPolyPoints([])
+    setHoverPoint(null)
   }
 
   function updateRegionTarget(index: number, targetValue: string) {
@@ -355,7 +429,7 @@ export default function EpaperAdmin() {
 
   const selectedPage = pages.find(p => p.id === pageId)
 
-  // Live drawing preview box
+  // Live drawing preview box for rect/l/t
   const previewBox = isDrawing && startPoint && currentPoint ? {
     x: Math.min(startPoint.x, currentPoint.x) * 100,
     y: Math.min(startPoint.y, currentPoint.y) * 100,
@@ -363,16 +437,19 @@ export default function EpaperAdmin() {
     h: Math.abs(currentPoint.y - startPoint.y) * 100
   } : null
 
-  const getClipPath = (shapeType?: Shape) => {
+  const getClipPath = (shapeType?: Shape, pts?: Array<{ x: number; y: number }>) => {
     if (shapeType === 'l') return 'polygon(0% 0%, 38% 0%, 38% 62%, 100% 62%, 100% 100%, 0% 100%)'
     if (shapeType === 't') return 'polygon(0% 0%, 100% 0%, 100% 32%, 62% 32%, 62% 100%, 38% 100%, 38% 32%, 0% 32%)'
+    if (shapeType === 'polygon' && pts && pts.length >= 3) {
+      return `polygon(${pts.map(p => `${(Number(p.x) * 100).toFixed(1)}% ${(Number(p.y) * 100).toFixed(1)}%`).join(', ')})`
+    }
     return undefined
   }
 
   return (
     <>
       <PageTitle
-        title="ই-পেপার ওয়ার্কস্পেস ও কাটিং লিংক ম্যাপার"
+        title="ই-পেপার ওয়ার্কস্পেস ও ভিজ্যুয়াল কাটিং ম্যাপার"
         subtitle="পত্রিকার কলাম ও হেডলাইন নিখুঁতভাবে সিলেক্ট করে মূল সংবাদ ও পাতার সাথে লিংক করুন।"
       />
 
@@ -491,13 +568,13 @@ export default function EpaperAdmin() {
             ))}
             {!pages.length && (
               <div style={{ gridColumn: '1 / -1', padding: '24px 0', textAlign: 'center', color: '#64748b' }}>
-                এখনও কোনো পৃষ্ঠা আপলোড করা হয়নি। বাঁ পাশ থেকে ছবি নির্বাচন করে "আপলোড করুন" বাটনে চাপ দিন।
+                এখনও কোনো পৃষ্ঠা আপলোড করা হয়নি।
               </div>
             )}
           </div>
         </section>
 
-        {/* Bottom / Main Section: Visual Link Mapper */}
+        {/* Bottom Section: Visual Link Mapper */}
         <section className="admin-panel epaper-mapper" style={{ gridColumn: '1 / -1' }}>
           <div
             className="workspace-heading"
@@ -512,18 +589,25 @@ export default function EpaperAdmin() {
               <h2>
                 ভিজ্যুয়াল কাটিং ম্যাপার {selectedPage ? `— পৃষ্ঠা নম্বর ${selectedPage.pageNumber}` : ''}
               </h2>
-              <p>পত্রিকার লেখার ওপর মাউস টেনে বক্স আঁকুন। তারপর নিচে সেই বক্সের সাথে নিউজ বা পাতার লিংক যুক্ত করুন।</p>
+              <p>
+                {shape === 'polygon'
+                  ? 'মাল্টি-পয়েন্ট মোড: ক্লিক করে করে পয়েন্ট বসান। শুরুতে থাকা পয়েন্ট A-তে ক্লিক করলে বা "শেপ সম্পন্ন করুন" বাটনে চাপলে শেপ তৈরি হবে।'
+                  : 'টুল সিলেক্ট করে পত্রিকার লেখার ওপর মাউস টেনে বক্স আঁকুন। তারপর নিচে সেই বক্সের সাথে নিউজ লিংক করুন।'}
+              </p>
             </div>
 
             {/* Shape Tools & Zoom Controls */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 700 }}>কাটিং টুল:</span>
                 <button
                   type="button"
                   className={`button ${shape === 'rect' ? 'button-primary' : 'button-ghost'}`}
                   style={{ padding: '5px 12px', fontSize: 12 }}
-                  onClick={() => setShape('rect')}
+                  onClick={() => {
+                    setShape('rect')
+                    cancelPolygon()
+                  }}
                 >
                   চারকোনা (Rectangle)
                 </button>
@@ -531,7 +615,10 @@ export default function EpaperAdmin() {
                   type="button"
                   className={`button ${shape === 'l' ? 'button-primary' : 'button-ghost'}`}
                   style={{ padding: '5px 12px', fontSize: 12 }}
-                  onClick={() => setShape('l')}
+                  onClick={() => {
+                    setShape('l')
+                    cancelPolygon()
+                  }}
                 >
                   L-শেপ (কলাম মোড়ক)
                 </button>
@@ -539,9 +626,20 @@ export default function EpaperAdmin() {
                   type="button"
                   className={`button ${shape === 't' ? 'button-primary' : 'button-ghost'}`}
                   style={{ padding: '5px 12px', fontSize: 12 }}
-                  onClick={() => setShape('t')}
+                  onClick={() => {
+                    setShape('t')
+                    cancelPolygon()
+                  }}
                 >
                   T-শেপ (টপ ব্যানার)
+                </button>
+                <button
+                  type="button"
+                  className={`button ${shape === 'polygon' ? 'button-primary' : 'button-ghost'}`}
+                  style={{ padding: '5px 12px', fontSize: 12, background: shape === 'polygon' ? '#c8102e' : undefined, color: shape === 'polygon' ? '#fff' : undefined }}
+                  onClick={() => setShape('polygon')}
+                >
+                  ✍️ মাল্টি-পয়েন্ট বহুভুজ (Polygon)
                 </button>
               </div>
 
@@ -556,7 +654,7 @@ export default function EpaperAdmin() {
                   borderRadius: 8
                 }}
               >
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>জুম স্পষ্টতা:</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>জুম:</span>
                 <button
                   type="button"
                   style={{ padding: '2px 8px', fontSize: 13, cursor: 'pointer', borderRadius: 4, border: '1px solid #cbd5e1' }}
@@ -592,6 +690,45 @@ export default function EpaperAdmin() {
             </div>
           </div>
 
+          {/* Polygon Action Bar when drawing points */}
+          {shape === 'polygon' && polyPoints.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#eff6ff',
+                border: '1px solid #bfdbfe',
+                padding: '10px 16px',
+                borderRadius: 8,
+                marginTop: 12
+              }}
+            >
+              <span style={{ fontSize: 13, color: '#1e40af' }}>
+                চিহ্নিত পয়েন্ট: <strong>{polyPoints.length}টি</strong> (শুরুর পয়েন্ট A-তে ক্লিক করুন অথবা পাশের বাটনে চাপ দিন)
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="button button-green"
+                  style={{ padding: '6px 14px', fontSize: 12 }}
+                  disabled={polyPoints.length < 3}
+                  onClick={finishPolygon}
+                >
+                  ✓ শেপ সম্পন্ন করুন ({polyPoints.length} পয়েন্ট)
+                </button>
+                <button
+                  type="button"
+                  className="button button-ghost"
+                  style={{ padding: '6px 14px', fontSize: 12 }}
+                  onClick={cancelPolygon}
+                >
+                  ✕ বাতিল
+                </button>
+              </div>
+            </div>
+          )}
+
           {selectedPage ? (
             <>
               {/* High-Resolution Scrollable Canvas Viewport */}
@@ -615,7 +752,7 @@ export default function EpaperAdmin() {
                     width: `${Math.round(zoom * 1000)}px`,
                     margin: '0 auto',
                     userSelect: 'none',
-                    cursor: 'crosshair',
+                    cursor: shape === 'polygon' ? 'cell' : 'crosshair',
                     lineHeight: 0,
                     backgroundColor: '#fff',
                     boxShadow: '0 8px 30px rgba(0,0,0,0.3)'
@@ -633,7 +770,7 @@ export default function EpaperAdmin() {
                   {/* Cutout Regions Overlay */}
                   {regions.map((reg, index) => {
                     const isSelected = selectedRegionIndex === index
-                    const clip = getClipPath(reg.shapeType)
+                    const clip = getClipPath(reg.shapeType, reg.points)
                     return (
                       <div
                         key={reg.id || index}
@@ -647,7 +784,7 @@ export default function EpaperAdmin() {
                           top: `${Number(reg.y) * 100}%`,
                           width: `${Number(reg.width) * 100}%`,
                           height: `${Number(reg.height) * 100}%`,
-                          backgroundColor: isSelected ? 'rgba(220, 38, 38, 0.4)' : 'rgba(37, 99, 235, 0.3)',
+                          backgroundColor: isSelected ? 'rgba(220, 38, 38, 0.45)' : 'rgba(37, 99, 235, 0.35)',
                           border: isSelected ? '2px solid #b91c1c' : '2px solid #1d4ed8',
                           clipPath: clip,
                           cursor: 'pointer',
@@ -672,8 +809,8 @@ export default function EpaperAdmin() {
                     )
                   })}
 
-                  {/* Live Drawing Preview */}
-                  {previewBox && (
+                  {/* Drag Preview for Rect/L/T */}
+                  {previewBox && shape !== 'polygon' && (
                     <div
                       style={{
                         position: 'absolute',
@@ -687,6 +824,67 @@ export default function EpaperAdmin() {
                         pointerEvents: 'none'
                       }}
                     />
+                  )}
+
+                  {/* Multi-Point Polygon Interactive SVG Drawing Overlay */}
+                  {shape === 'polygon' && (
+                    <svg
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        pointerEvents: 'none'
+                      }}
+                    >
+                      {/* Drawn connecting lines */}
+                      {polyPoints.length > 1 && (
+                        <polyline
+                          points={polyPoints.map(p => `${p.x * 100}%,${p.y * 100}%`).join(' ')}
+                          fill="rgba(200, 16, 46, 0.2)"
+                          stroke="#c8102e"
+                          strokeWidth="2.5"
+                          strokeDasharray="4 4"
+                        />
+                      )}
+
+                      {/* Line to current mouse hover cursor */}
+                      {polyPoints.length > 0 && hoverPoint && (
+                        <line
+                          x1={`${polyPoints[polyPoints.length - 1].x * 100}%`}
+                          y1={`${polyPoints[polyPoints.length - 1].y * 100}%`}
+                          x2={`${hoverPoint.x * 100}%`}
+                          y2={`${hoverPoint.y * 100}%`}
+                          stroke="#c8102e"
+                          strokeWidth="2"
+                        />
+                      )}
+
+                      {/* Point Dots */}
+                      {polyPoints.map((pt, idx) => (
+                        <g key={idx}>
+                          <circle
+                            cx={`${pt.x * 100}%`}
+                            cy={`${pt.y * 100}%`}
+                            r={idx === 0 ? 7 : 5}
+                            fill={idx === 0 ? '#16a34a' : '#c8102e'}
+                            stroke="#fff"
+                            strokeWidth="2"
+                          />
+                          <text
+                            x={`${pt.x * 100}%`}
+                            y={`${pt.y * 100}%`}
+                            dx={10}
+                            dy={-5}
+                            fill="#c8102e"
+                            fontWeight="bold"
+                            fontSize="12"
+                          >
+                            {String.fromCharCode(65 + (idx % 26))}
+                          </text>
+                        </g>
+                      ))}
+                    </svg>
                   )}
                 </div>
               </div>
@@ -748,7 +946,13 @@ export default function EpaperAdmin() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontWeight: 'bold', fontSize: 15 }}>#{index + 1}</span>
                           <span className="status-pill" style={{ background: '#e0f2fe', color: '#0369a1' }}>
-                            {reg.shapeType === 'l' ? 'L-Shape' : reg.shapeType === 't' ? 'T-Shape' : 'Rectangle'}
+                            {reg.shapeType === 'polygon'
+                              ? `বহুভুজ (${reg.points?.length || 0} পয়েন্ট)`
+                              : reg.shapeType === 'l'
+                              ? 'L-Shape'
+                              : reg.shapeType === 't'
+                              ? 'T-Shape'
+                              : 'Rectangle'}
                           </span>
                         </div>
 
