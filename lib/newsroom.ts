@@ -1,6 +1,6 @@
-import { and, desc, eq, ilike, lte, or, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, lte, or, isNull, sql, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db'
-import { breakingTickers, newsArticles, newsCategories, newsVideos } from '@/lib/db/schema'
+import { breakingTickers, newsArticles, newsCategories, newsVideos, articleCategories } from '@/lib/db/schema'
 
 const published = and(
   eq(newsArticles.status, 'published'),
@@ -15,7 +15,6 @@ export async function getPublishedStories() {
     .orderBy(desc(newsArticles.publishedAt), desc(newsArticles.createdAt))
 }
 
-// কোনো পাঠক সংবাদের বিস্তারিত ওপেন করলেই ব্যাকগ্রাউন্ডে ভিউ ১ বাড়বে
 export async function getStory(id: number) {
   void db
     .update(newsArticles)
@@ -50,7 +49,6 @@ export async function getStoryBySlug(slug: string) {
   return rows[0] ?? null
 }
 
-// সর্বাধিক পঠিত সংবাদ (Trending / Most Read)
 export async function getMostReadStories(limit = 5) {
   return db
     .select()
@@ -89,11 +87,23 @@ export async function getCategoryBySlug(slug: string) {
   return rows[0] ?? null
 }
 
+// যে যে ক্যাটাগরি সিলেক্ট করা হবে, সেগুলোর প্রতিটির পাতায় খবরটি প্রদর্শিত হবে
 export async function getPublishedStoriesByCategory(categoryId: number) {
+  const junctionRows = await db
+    .select({ articleId: articleCategories.articleId })
+    .from(articleCategories)
+    .where(eq(articleCategories.categoryId, categoryId))
+
+  const junctionArticleIds = junctionRows.map(r => r.articleId)
+
+  const categoryFilter = junctionArticleIds.length > 0
+    ? or(eq(newsArticles.categoryId, categoryId), inArray(newsArticles.id, junctionArticleIds))
+    : eq(newsArticles.categoryId, categoryId)
+
   return db
     .select()
     .from(newsArticles)
-    .where(and(eq(newsArticles.categoryId, categoryId), published))
+    .where(and(categoryFilter, published))
     .orderBy(desc(newsArticles.publishedAt), desc(newsArticles.createdAt))
 }
 

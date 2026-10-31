@@ -1,33 +1,8 @@
-// 'use client'
-
-// import { useEffect, useMemo, useState } from 'react'
-// import { CheckCircle2, ImagePlus, Save, UploadCloud } from 'lucide-react'
-
-// type Category = { id: number; nameBn: string; nameEn?: string | null }
-// type FormState = { id?: number; titleBn: string; titleEn: string; excerptBn: string; excerptEn: string; bodyBn: string; bodyEn: string; imageUrl: string; categoryIds: number[]; authorName: string; status: string; scheduledAt: string; isBreaking: boolean }
-// const blank: FormState = { titleBn: '', titleEn: '', excerptBn: '', excerptEn: '', bodyBn: '', bodyEn: '', imageUrl: '', categoryIds: [], authorName: 'নিজস্ব প্রতিবেদক', status: 'draft', scheduledAt: '', isBreaking: false }
-
-// export default function NewsForm({ editing = false, articleId }: { editing?: boolean; articleId?: number }) {
-//   const [form, setForm] = useState<FormState>({ ...blank, id: articleId });
-//   const [categories, setCategories] = useState<Category[]>([])
-//   const [message, setMessage] = useState('')
-//   const [saving, setSaving] = useState(false)
-//   const [uploading, setUploading] = useState(false)
-//   const [created, setCreated] = useState(false)
-//   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm(current => ({ ...current, [key]: value }))
-//   useEffect(() => { void fetch('/api/admin/categories').then(r => r.json()).then(data => setCategories(data.categories || [])); if (articleId) void fetch('/api/admin/news').then(r => r.json()).then(data => { const article = data.articles?.find((item: { id: number }) => item.id === articleId); if (article) setForm({ ...blank, ...article, id: article.id, titleEn: article.titleEn === article.titleBn ? '' : article.titleEn, categoryIds: article.categoryIds || (article.categoryId ? [article.categoryId] : []), scheduledAt: article.scheduledAt ? new Date(article.scheduledAt).toISOString().slice(0, 16) : '' }) }) }, [articleId])
-//   const selectedNames = useMemo(() => categories.filter(category => form.categoryIds.includes(category.id)).map(category => category.nameBn).join(', '), [categories, form.categoryIds])
-//   async function uploadImage(file: File) { setUploading(true); setMessage('ছবি আপলোড হচ্ছে...'); try { const body = new FormData(); body.append('file', file); const response = await fetch('/api/admin/media/upload', { method: 'POST', body }); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'ছবি আপলোড ব্যর্থ'); update('imageUrl', data.asset.url); setMessage('ছবি আপলোড হয়েছে।') } catch (error) { setMessage(error instanceof Error ? error.message : 'ছবি আপলোড ব্যর্থ হয়েছে।') } finally { setUploading(false) } }
-//   async function save(event: React.FormEvent) { event.preventDefault(); setSaving(true); setCreated(false); setMessage('সংরক্ষণ হচ্ছে...'); try { const response = await fetch('/api/admin/news', { method: editing ? 'PATCH' : 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...form, categoryIds: form.categoryIds }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'সংরক্ষণ ব্যর্থ হয়েছে।'); setMessage('সংবাদ সফলভাবে সংরক্ষণ হয়েছে।'); setCreated(true); if (!editing) setForm({ ...blank }) } catch (error) { setMessage(error instanceof Error ? error.message : 'সংরক্ষণ ব্যর্থ হয়েছে।') } finally { setSaving(false) } }
-//   return <form className="news-editor phase-two-editor" onSubmit={save}><div className="editor-main"><div className="editor-card"><label>বাংলা শিরোনাম <span className="required">আবশ্যক</span><input className="big-input" required value={form.titleBn} onChange={event => update('titleBn', event.target.value)} placeholder="সংবাদের প্রধান শিরোনাম লিখুন" /></label><label>English title <span className="optional">ঐচ্ছিক · না দিলে বাংলা শিরোনাম ব্যবহৃত হবে</span><input value={form.titleEn} onChange={event => update('titleEn', event.target.value)} placeholder="Optional English headline" /></label><div className="two-form-grid"><label>বাংলা সারাংশ <span className="optional">ঐচ্ছিক</span><textarea rows={4} value={form.excerptBn} onChange={event => update('excerptBn', event.target.value)} placeholder="সংবাদের সংক্ষিপ্ত সারাংশ" /></label><label>English summary <span className="optional">Optional</span><textarea rows={4} value={form.excerptEn} onChange={event => update('excerptEn', event.target.value)} /></label></div><label>বিস্তারিত সংবাদ<textarea rows={12} value={form.bodyBn} onChange={event => update('bodyBn', event.target.value)} placeholder="সম্পূর্ণ সংবাদ লিখুন" /></label><label>English body <span className="optional">Optional</span><textarea rows={8} value={form.bodyEn} onChange={event => update('bodyEn', event.target.value)} /></label></div><div className="editor-card"><div className="editor-card-heading"><div><strong>Featured image</strong><small>Upload an image for this story</small></div><label className="upload-button"><UploadCloud size={16} />{uploading ? 'Uploading…' : 'Upload image'}<input type="file" accept="image/jpeg,image/png,image/webp" hidden disabled={uploading} onChange={event => { const file = event.target.files?.[0]; if (file) void uploadImage(file) }} /></label></div>{form.imageUrl ? <img className="editor-image-preview" src={form.imageUrl} alt="Selected article" /> : <div className="editor-image-empty"><ImagePlus size={28} /><span>No image selected</span></div>}</div></div><aside className="editor-side"><div className="editor-card"><h3>Publishing</h3><label>Status<select value={form.status} onChange={event => update('status', event.target.value)}><option value="draft">Draft</option><option value="published">Published</option><option value="scheduled">Scheduled</option></select></label>{form.status === 'scheduled' && <label>Publish at<input type="datetime-local" value={form.scheduledAt} onChange={event => update('scheduledAt', event.target.value)} /></label>}<label>Author<input value={form.authorName} onChange={event => update('authorName', event.target.value)} /></label><label className="check-row"><input type="checkbox" checked={form.isBreaking} onChange={event => update('isBreaking', event.target.checked)} /> Breaking news</label></div><div className="editor-card"><div className="editor-card-heading"><h3>Categories</h3><a href="/dainik-kalyan-control-panel/dashboard/categories">+ New category</a></div><p className="selected-hint">{selectedNames || 'Select one or more categories'}</p><div className="category-checks">{categories.map(category => <label className="check-row" key={category.id}><input type="checkbox" checked={form.categoryIds.includes(category.id)} onChange={event => update('categoryIds', event.target.checked ? [...form.categoryIds, category.id] : form.categoryIds.filter(id => id !== category.id))} />{category.nameBn}</label>)}</div></div></aside><div className="save-bar"><span className={created ? 'save-success' : message.includes('ব্যর্থ') ? 'save-error' : ''}>{created && <CheckCircle2 size={17} />}{message}</span><button className="button button-primary" disabled={saving || uploading}><Save size={16} />{saving ? 'সংরক্ষণ হচ্ছে…' : editing ? 'পরিবর্তন সংরক্ষণ' : 'সংবাদ প্রকাশ করুন'}</button></div></form>
-// }
-
-
-
 'use client'
 
 import { useEffect, useState } from 'react'
 import type React from 'react'
+import Link from 'next/link'
 
 type Category = {
   id: number
@@ -39,6 +14,7 @@ type NewsFormProps = {
     id?: number
     titleBn?: string
     categoryId?: number | null
+    categoryIds?: number[]
     authorName?: string
     imageUrl?: string
     excerptBn?: string
@@ -49,10 +25,15 @@ type NewsFormProps = {
   onSuccess?: () => void
 }
 
-export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
+export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
   const [categories, setCategories] = useState<Category[]>([])
   const [titleBn, setTitleBn] = useState(initialData?.titleBn || '')
-  const [categoryId, setCategoryId] = useState<string>(initialData?.categoryId ? String(initialData.categoryId) : '')
+  
+  // একাধিক ক্যাটাগরি স্টেট
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>(
+    initialData?.categoryIds || (initialData?.categoryId ? [initialData.categoryId] : [])
+  )
+
   const [authorName, setAuthorName] = useState(initialData?.authorName || 'নিজস্ব প্রতিবেদক')
   const [imageUrl, setImageUrl] = useState(initialData?.imageUrl || '')
   const [excerptBn, setExcerptBn] = useState(initialData?.excerptBn || '')
@@ -64,7 +45,6 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
-  // ডেটাবেস থেকে সব ক্যাটাগরি ড্রপডাউনে লোড করা
   useEffect(() => {
     async function loadCats() {
       try {
@@ -78,7 +58,23 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
     void loadCats()
   }, [])
 
-  // সরাসরি ছবি সিলেক্ট করে আপলোড ও লাইভ প্রিভিউ
+  // ক্যাটাগরি টগল (ক্লিক করলে যোগ/বাদ হবে)
+  function toggleCategory(catId: number) {
+    setSelectedCategoryIds(prev =>
+      prev.includes(catId) ? prev.filter(id => id !== catId) : [...prev, catId]
+    )
+  }
+
+  // সব ক্যাটাগরি একসাথে সিলেক্ট / ডিসিলেক্ট
+  function handleSelectAllCategories() {
+    if (selectedCategoryIds.length === categories.length) {
+      setSelectedCategoryIds([])
+    } else {
+      setSelectedCategoryIds(categories.map(c => c.id))
+    }
+  }
+
+  // ছবি আপলোড
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -112,7 +108,7 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!titleBn.trim()) {
-      setMessage({ text: 'সংবাদের শিরোনাম অবশ্যই দিতে হবে', type: 'error' })
+      setMessage({ text: 'সংবাদের শিরোনাম অবশ্যই প্রদান করতে হবে', type: 'error' })
       return
     }
 
@@ -122,7 +118,8 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
     const payload = {
       id: initialData?.id,
       titleBn,
-      categoryId: categoryId ? Number(categoryId) : null,
+      categoryIds: selectedCategoryIds,
+      categoryId: selectedCategoryIds[0] || null,
       authorName,
       imageUrl,
       excerptBn,
@@ -142,11 +139,14 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
 
       if (res.ok) {
         setMessage({
-          text: initialData?.id ? '✅ সংবাদ সফলভাবে আপডেট হয়েছে!' : '✅ সংবাদ সফলভাবে প্রকাশিত হয়েছে!',
+          text: initialData?.id
+            ? '✅ সংবাদ সফলভাবে আপডেট হয়েছে!'
+            : '✅ সংবাদ সফলভাবে প্রকাশিত হয়েছে!',
           type: 'success'
         })
         if (!initialData?.id) {
           setTitleBn('')
+          setSelectedCategoryIds([])
           setImageUrl('')
           setExcerptBn('')
           setBodyBn('')
@@ -164,11 +164,24 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 18, maxWidth: 900, margin: '0 auto' }}>
+    <form
+      onSubmit={handleSubmit}
+      style={{
+        display: 'grid',
+        gap: 24,
+        maxWidth: 960,
+        margin: '20px auto 40px',
+        background: '#fff',
+        padding: 32,
+        borderRadius: 14,
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 8px 24px rgba(15, 23, 42, 0.05)'
+      }}
+    >
       {message && (
         <div
           style={{
-            padding: '12px 16px',
+            padding: '12px 18px',
             borderRadius: 8,
             fontWeight: 600,
             fontSize: 14,
@@ -182,53 +195,147 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
       )}
 
       {/* Title */}
-      <label style={{ display: 'grid', gap: 6, fontWeight: 700, fontSize: 14 }}>
-        সংবাদের শিরোনাম (বাংলা) *
+      <div style={{ display: 'grid', gap: 8 }}>
+        <label style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>
+          সংবাদের শিরোনাম (বাংলা) <span style={{ color: '#dc2626' }}>*</span>
+        </label>
         <input
           type="text"
           value={titleBn}
           onChange={e => setTitleBn(e.target.value)}
           placeholder="আকর্ষণীয় শিরোনাম লিখুন..."
           required
-          style={{ padding: '10px 14px', fontSize: 16, borderRadius: 6, border: '1px solid #cbd5e1' }}
+          style={{
+            padding: '12px 16px',
+            fontSize: 16,
+            fontWeight: 600,
+            borderRadius: 8,
+            border: '2px solid #cbd5e1',
+            outline: 'none',
+            color: '#0f172a'
+          }}
         />
-      </label>
-
-      {/* Category & Author Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
-        <label style={{ display: 'grid', gap: 6, fontWeight: 600, fontSize: 13 }}>
-          ক্যাটাগরি নির্বাচন করুন
-          <select
-            value={categoryId}
-            onChange={e => setCategoryId(e.target.value)}
-            style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-          >
-            <option value="">-- ক্যাটাগরি বেছে নিন --</option>
-            {categories.map(cat => (
-              <option key={cat.id} value={cat.id}>
-                {cat.nameBn}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label style={{ display: 'grid', gap: 6, fontWeight: 600, fontSize: 13 }}>
-          প্রতিবেদক / লেখকের নাম
-          <input
-            type="text"
-            value={authorName}
-            onChange={e => setAuthorName(e.target.value)}
-            placeholder="নিজস্ব প্রতিবেদক"
-            style={{ padding: '9px 12px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-          />
-        </label>
       </div>
 
-      {/* Feature Image Upload & Preview */}
-      <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, border: '1px solid #e2e8f0' }}>
-        <label style={{ display: 'block', fontWeight: 700, fontSize: 13, marginBottom: 8 }}>
-          ফিচার ইমেজ (মূল ছবি)
+      {/* Multiple Category Selection */}
+      <div style={{ display: 'grid', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <label style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+            ক্যাটাগরি নির্বাচন করুন (একাধিক ক্যাটাগরি সিলেক্ট করতে পারেন)
+            {selectedCategoryIds.length > 0 && (
+              <span style={{ marginLeft: 8, color: '#c8102e', fontWeight: 700 }}>
+                ({selectedCategoryIds.length}টি নির্বাচিত)
+              </span>
+            )}
+          </label>
+
+          <button
+            type="button"
+            onClick={handleSelectAllCategories}
+            style={{
+              background: '#f1f5f9',
+              border: '1px solid #cbd5e1',
+              padding: '4px 12px',
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              color: '#2563eb'
+            }}
+          >
+            {selectedCategoryIds.length === categories.length && categories.length > 0
+              ? '✕ সব বাদ দিন'
+              : '✓ সবগুলো সিলেক্ট করুন'}
+          </button>
+        </div>
+
+        {/* Clean, Error-Free Category Pills Grid */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 8,
+            background: '#f8fafc',
+            padding: '14px 16px',
+            borderRadius: 8,
+            border: '1px solid #e2e8f0',
+            minHeight: 52
+          }}
+        >
+          {categories.map(cat => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => toggleCategory(cat.id)}
+              style={{
+                padding: '7px 16px',
+                borderRadius: 999,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                border: selectedCategoryIds.includes(cat.id) ? '1px solid #c8102e' : '1px solid #cbd5e1',
+                background: selectedCategoryIds.includes(cat.id) ? '#c8102e' : '#fff',
+                color: selectedCategoryIds.includes(cat.id) ? '#fff' : '#334155',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                transition: 'all 0.15s ease',
+                boxShadow: selectedCategoryIds.includes(cat.id) ? '0 2px 6px rgba(200, 16, 46, 0.25)' : 'none'
+              }}
+            >
+              <span>{selectedCategoryIds.includes(cat.id) ? '✓' : '＋'}</span>
+              <span>{cat.nameBn}</span>
+            </button>
+          ))}
+
+          {!categories.length && (
+            <span style={{ fontSize: 13, color: '#64748b' }}>কোনো ক্যাটাগরি পাওয়া যায়নি।</span>
+          )}
+        </div>
+      </div>
+
+      {/* Author Name */}
+      <div style={{ display: 'grid', gap: 8, maxWidth: 360 }}>
+        <label style={{ fontWeight: 700, fontSize: 14, color: '#334155' }}>
+          প্রতিবেদক / লেখকের নাম
         </label>
+        <input
+          type="text"
+          value={authorName}
+          onChange={e => setAuthorName(e.target.value)}
+          placeholder="নিজস্ব প্রতিবেদক"
+          style={{
+            padding: '10px 14px',
+            fontSize: 14,
+            borderRadius: 8,
+            border: '1px solid #cbd5e1',
+            background: '#f8fafc'
+          }}
+        />
+      </div>
+
+      {/* Feature Image Upload */}
+      <div
+        style={{
+          background: '#f8fafc',
+          padding: 20,
+          borderRadius: 10,
+          border: '1px solid #e2e8f0'
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <label style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+            ফিচার ইমেজ (মূল ছবি)
+          </label>
+          <Link
+            href="/dainik-kalyan-control-panel/dashboard/media"
+            target="_blank"
+            style={{ fontSize: 12, color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}
+          >
+            মিডিয়া লাইব্রেরি দেখুন ↗
+          </Link>
+        </div>
+
         <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             type="file"
@@ -236,34 +343,45 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
             onChange={handleImageUpload}
             style={{ fontSize: 13 }}
           />
-          {uploadingImage && <span style={{ fontSize: 12, color: '#2563eb' }}>ছবি আপলোড হচ্ছে...</span>}
+          {uploadingImage && <span style={{ fontSize: 13, color: '#2563eb', fontWeight: 600 }}>ছবি আপলোড হচ্ছে...</span>}
         </div>
 
-        {/* Live Preview */}
         {imageUrl && (
-          <div style={{ marginTop: 12, position: 'relative', display: 'inline-block' }}>
+          <div
+            style={{
+              marginTop: 14,
+              position: 'relative',
+              display: 'inline-block',
+              borderRadius: 8,
+              overflow: 'hidden',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+            }}
+          >
             <img
               src={imageUrl}
               alt="Feature Preview"
-              style={{ maxHeight: 180, borderRadius: 6, border: '1px solid #cbd5e1', display: 'block' }}
+              style={{ maxHeight: 220, display: 'block', objectFit: 'cover' }}
             />
             <button
               type="button"
               onClick={() => setImageUrl('')}
               style={{
                 position: 'absolute',
-                top: 6,
-                right: 6,
+                top: 8,
+                right: 8,
                 background: 'rgba(220, 38, 38, 0.9)',
                 color: '#fff',
                 border: 0,
                 borderRadius: 999,
-                width: 24,
-                height: 24,
+                width: 28,
+                height: 28,
                 cursor: 'pointer',
-                fontWeight: 'bold'
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}
-              title="ছবি সরান"
+              title="ছবি মুছে ফেলুন"
             >
               ✕
             </button>
@@ -271,50 +389,105 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
         )}
       </div>
 
-      {/* Excerpt / Lead */}
-      <label style={{ display: 'grid', gap: 6, fontWeight: 600, fontSize: 13 }}>
-        সংবাদের সারাংশ / লিড প্যারাগ্রাফ
+      {/* Excerpt */}
+      <div style={{ display: 'grid', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <label style={{ fontWeight: 700, fontSize: 14, color: '#334155' }}>
+            সংবাদের সারসংক্ষেপ / লিড প্যারাগ্রাফ
+          </label>
+          <span style={{ fontSize: 12, color: '#64748b' }}>{excerptBn.length} অক্ষর</span>
+        </div>
         <textarea
           value={excerptBn}
           onChange={e => setExcerptBn(e.target.value)}
-          placeholder="খবরের প্রথম ২-৩ লাইনের মূল সারসংক্ষেপ..."
+          placeholder="খবরের মূল সারসংক্ষেপ..."
           rows={2}
-          style={{ padding: '10px 14px', borderRadius: 6, border: '1px solid #cbd5e1', resize: 'vertical' }}
+          style={{
+            padding: '10px 14px',
+            fontSize: 14,
+            borderRadius: 8,
+            border: '1px solid #cbd5e1',
+            resize: 'vertical'
+          }}
         />
-      </label>
+      </div>
 
-      {/* Detailed Body */}
-      <label style={{ display: 'grid', gap: 6, fontWeight: 600, fontSize: 13 }}>
-        বিস্তারিত প্রতিবেদন *
+      {/* Body */}
+      <div style={{ display: 'grid', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <label style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+            সম্পূর্ণ প্রতিবেদন <span style={{ color: '#dc2626' }}>*</span>
+          </label>
+          <span style={{ fontSize: 12, color: '#64748b' }}>
+            {bodyBn.trim() ? `${bodyBn.trim().split(/\s+/).length} শব্দ` : '০ শব্দ'}
+          </span>
+        </div>
         <textarea
           value={bodyBn}
           onChange={e => setBodyBn(e.target.value)}
-          placeholder="সম্পূর্ণ সংবাদ এখানে লিখুন..."
-          rows={8}
+          placeholder="সম্পূর্ণ সংবাদ বিস্তারিতভাবে এখানে লিখুন..."
+          rows={10}
           required
-          style={{ padding: '12px 14px', borderRadius: 6, border: '1px solid #cbd5e1', resize: 'vertical', lineHeight: 1.6 }}
+          style={{
+            padding: '14px 16px',
+            fontSize: 15,
+            lineHeight: 1.8,
+            borderRadius: 8,
+            border: '1px solid #cbd5e1',
+            resize: 'vertical'
+          }}
         />
-      </label>
+      </div>
 
-      {/* Breaking News Checkbox & Publish Status */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', borderTop: '1px solid #e2e8f0', paddingTop: 14 }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14, color: '#c8102e' }}>
+      {/* Controls */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 16,
+          flexWrap: 'wrap',
+          borderTop: '2px solid #f1f5f9',
+          paddingTop: 18
+        }}
+      >
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            cursor: 'pointer',
+            fontWeight: 700,
+            fontSize: 14,
+            color: isBreaking ? '#dc2626' : '#64748b',
+            background: isBreaking ? '#fee2e2' : '#f8fafc',
+            padding: '8px 14px',
+            borderRadius: 6,
+            border: isBreaking ? '1px solid #fca5a5' : '1px solid #e2e8f0'
+          }}
+        >
           <input
             type="checkbox"
             checked={isBreaking}
             onChange={e => setIsBreaking(e.target.checked)}
-            style={{ width: 18, height: 18 }}
+            style={{ width: 18, height: 18, cursor: 'pointer' }}
           />
           🚨 ব্রেকিং নিউজ হিসেবে চিহ্নিত করুন
         </label>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <label style={{ fontWeight: 600, fontSize: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <label style={{ fontWeight: 600, fontSize: 14 }}>
             স্ট্যাটাস:
             <select
               value={status}
               onChange={e => setStatus(e.target.value)}
-              style={{ marginLeft: 8, padding: '7px 12px', borderRadius: 6, border: '1px solid #cbd5e1' }}
+              style={{
+                marginLeft: 8,
+                padding: '8px 12px',
+                borderRadius: 6,
+                border: '1px solid #cbd5e1',
+                background: '#fff'
+              }}
             >
               <option value="published">প্রকাশ করুন (Published)</option>
               <option value="draft">খসড়া রাখুন (Draft)</option>
@@ -325,7 +498,12 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
             type="submit"
             className="button button-primary"
             disabled={submitting}
-            style={{ padding: '10px 24px', fontSize: 15, fontWeight: 700 }}
+            style={{
+              padding: '10px 28px',
+              fontSize: 15,
+              fontWeight: 700,
+              borderRadius: 6
+            }}
           >
             {submitting ? 'সংরক্ষণ হচ্ছে...' : initialData?.id ? 'আপডেট করুন' : 'নিউজ প্রকাশ করুন'}
           </button>
@@ -334,3 +512,5 @@ export function NewsForm({ initialData, onSuccess }: NewsFormProps) {
     </form>
   )
 }
+
+export { NewsForm }
