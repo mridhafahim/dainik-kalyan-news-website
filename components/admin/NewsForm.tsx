@@ -22,14 +22,21 @@ type NewsFormProps = {
     isBreaking?: boolean
     status?: string
   }
+  editing?: boolean
+  articleId?: number
   onSuccess?: () => void
+  [key: string]: any // যেকোনো অতিরিক্ত প্রপ নিরাপদে গ্রহণ করার জন্য
 }
 
-export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
+export default function NewsForm({
+  initialData,
+  editing = false,
+  articleId,
+  onSuccess
+}: NewsFormProps) {
   const [categories, setCategories] = useState<Category[]>([])
   const [titleBn, setTitleBn] = useState(initialData?.titleBn || '')
   
-  // একাধিক ক্যাটাগরি স্টেট
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>(
     initialData?.categoryIds || (initialData?.categoryId ? [initialData.categoryId] : [])
   )
@@ -45,6 +52,29 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
+  // Load existing article details if in edit mode and articleId is passed
+  useEffect(() => {
+    const currentId = articleId || initialData?.id
+    if (currentId && !initialData?.titleBn) {
+      fetch('/api/admin/news')
+        .then(res => res.json())
+        .then(data => {
+          const found = (data.stories || []).find((s: any) => s.id === currentId)
+          if (found) {
+            setTitleBn(found.titleBn || '')
+            setAuthorName(found.authorName || 'নিজস্ব প্রতিবেদক')
+            setImageUrl(found.imageUrl || '')
+            setExcerptBn(found.excerptBn || '')
+            setBodyBn(found.bodyBn || '')
+            setIsBreaking(Boolean(found.isBreaking))
+            setStatus(found.status || 'published')
+            if (found.categoryId) setSelectedCategoryIds([found.categoryId])
+          }
+        })
+        .catch(() => {})
+    }
+  }, [articleId, initialData])
+
   useEffect(() => {
     async function loadCats() {
       try {
@@ -58,14 +88,12 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
     void loadCats()
   }, [])
 
-  // ক্যাটাগরি টগল (ক্লিক করলে যোগ/বাদ হবে)
   function toggleCategory(catId: number) {
     setSelectedCategoryIds(prev =>
       prev.includes(catId) ? prev.filter(id => id !== catId) : [...prev, catId]
     )
   }
 
-  // সব ক্যাটাগরি একসাথে সিলেক্ট / ডিসিলেক্ট
   function handleSelectAllCategories() {
     if (selectedCategoryIds.length === categories.length) {
       setSelectedCategoryIds([])
@@ -74,7 +102,6 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
     }
   }
 
-  // ছবি আপলোড
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -115,8 +142,11 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
     setSubmitting(true)
     setMessage(null)
 
+    const activeId = articleId || initialData?.id
+    const isEditMode = editing || Boolean(activeId)
+
     const payload = {
-      id: initialData?.id,
+      id: activeId,
       titleBn,
       categoryIds: selectedCategoryIds,
       categoryId: selectedCategoryIds[0] || null,
@@ -130,7 +160,7 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
 
     try {
       const res = await fetch('/api/admin/news', {
-        method: initialData?.id ? 'PUT' : 'POST',
+        method: isEditMode ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
@@ -139,12 +169,10 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
 
       if (res.ok) {
         setMessage({
-          text: initialData?.id
-            ? '✅ সংবাদ সফলভাবে আপডেট হয়েছে!'
-            : '✅ সংবাদ সফলভাবে প্রকাশিত হয়েছে!',
+          text: isEditMode ? '✅ সংবাদ সফলভাবে আপডেট হয়েছে!' : '✅ সংবাদ সফলভাবে প্রকাশিত হয়েছে!',
           type: 'success'
         })
-        if (!initialData?.id) {
+        if (!isEditMode) {
           setTitleBn('')
           setSelectedCategoryIds([])
           setImageUrl('')
@@ -162,6 +190,8 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
       setSubmitting(false)
     }
   }
+
+  const isEditMode = editing || Boolean(articleId || initialData?.id)
 
   return (
     <form
@@ -221,7 +251,7 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
       <div style={{ display: 'grid', gap: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <label style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
-            ক্যাটাগরি নির্বাচন করুন (একাধিক ক্যাটাগরি সিলেক্ট করতে পারেন)
+            ক্যাটাগরি নির্বাচন করুন
             {selectedCategoryIds.length > 0 && (
               <span style={{ marginLeft: 8, color: '#c8102e', fontWeight: 700 }}>
                 ({selectedCategoryIds.length}টি নির্বাচিত)
@@ -249,7 +279,6 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
           </button>
         </div>
 
-        {/* Clean, Error-Free Category Pills Grid */}
         <div
           style={{
             display: 'flex',
@@ -505,7 +534,7 @@ export default function NewsForm({ initialData, onSuccess }: NewsFormProps) {
               borderRadius: 6
             }}
           >
-            {submitting ? 'সংরক্ষণ হচ্ছে...' : initialData?.id ? 'আপডেট করুন' : 'নিউজ প্রকাশ করুন'}
+            {submitting ? 'সংরক্ষণ হচ্ছে...' : isEditMode ? 'আপডেট করুন' : 'নিউজ প্রকাশ করুন'}
           </button>
         </div>
       </div>
