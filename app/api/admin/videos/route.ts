@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
+
 export async function DELETE(request: NextRequest) {
   const actor = await requireAdmin(request, undefined, 'news:write')
   if (!actor) return NextResponse.json({ error: 'অননুমোদিত এক্সেস' }, { status: 403 })
