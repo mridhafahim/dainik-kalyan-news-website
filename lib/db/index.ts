@@ -19,7 +19,8 @@ export const pool = globalForDb.pool ?? new Pool({ connectionString: process.env
 
 if (process.env.NODE_ENV !== 'production') globalForDb.pool = pool
 
-// নিরাপদভাবে view_count কলাম না থাকলে যুক্ত করা (আগের ডেটা রিসেট হবে না)
+// ডেটাবেসে নিরাপদ স্বয়ংক্রিয় কলাম যোগ (আগের ডেটা রিসেট হবে না)
 pool.query('ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0;').catch(() => {})
+pool.query('ALTER TABLE epaper_pages ADD COLUMN IF NOT EXISTS special_name TEXT;').catch(() => {})
 
 export const db = drizzle(pool, { schema })

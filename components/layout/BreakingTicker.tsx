@@ -1,35 +1,78 @@
 'use client'
 
 import Link from 'next/link'
-import { useLanguage } from '@/context/LanguageContext'
-import useSWR from 'swr'
-const fetcher = (url: string) => fetch(url).then((response) => response.json())
 
-export default function BreakingTicker() {
-  const { language } = useLanguage()
-  const { data } = useSWR<{ tickers: Array<{ id: number; textBn: string; textEn: string; newsUrl: string }> }>('/api/newsroom', fetcher, { revalidateOnFocus: false })
-  const liveItems = data?.tickers ?? []
-  const items = liveItems.length ? [...liveItems, ...liveItems] : []
+type TickerItem = {
+  id: number
+  textBn: string
+  newsUrl: string
+}
+
+export function BreakingTicker({ items = [] }: { items?: TickerItem[] }) {
+  if (!items || items.length === 0) return null
 
   return (
-    <div className="breaking-ticker" role="region" aria-label={language === 'bn' ? 'ব্রেকিং নিউজ' : 'Breaking news'}>
-      <div className="breaking-ticker-inner">
-        <div className="breaking-label">
-          <span className="live-dot" aria-hidden="true" />
-          <span className="breaking-label-full">{language === 'bn' ? 'ব্রেকিং নিউজ' : 'BREAKING NEWS'}</span>
-          <span className="breaking-label-mobile">LIVE</span>
-        </div>
-        <div className="ticker-window">
-          <div className="ticker-track">
-            {items.map((item, index) => (
-              <Link key={`${item.id}-${index}`} href={item.newsUrl || `/news/${item.id}`} className="ticker-item">
-                {language === 'bn' ? item.textBn : item.textEn}
-                <span className="ticker-star" aria-hidden="true">★</span>
+    <div
+      style={{
+        background: '#0f172a',
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        overflow: 'hidden',
+        height: 38,
+        fontSize: 13,
+        borderBottom: '1px solid #334155'
+      }}
+    >
+      {/* Label Badge */}
+      <div
+        style={{
+          background: '#c8102e',
+          color: '#fff',
+          fontWeight: 800,
+          padding: '0 16px',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          flexShrink: 0,
+          zIndex: 2,
+          letterSpacing: '0.5px'
+        }}
+      >
+        <span style={{ width: 8, height: 8, borderRadius: 999, background: '#fff', display: 'inline-block' }} />
+        ব্রেকিং নিউজ
+      </div>
+
+      {/* Fast & Smooth Marquee Slider */}
+      <div style={{ flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', position: 'relative' }}>
+        <div
+          style={{
+            display: 'inline-block',
+            paddingLeft: '100%',
+            animation: 'fastMarquee 24s linear infinite' // গতি বাড়িয়ে ফাস্ট করা হয়েছে
+          }}
+        >
+          {items.map(t => (
+            <span key={t.id} style={{ marginRight: 40, display: 'inline-flex', alignItems: 'center' }}>
+              <span style={{ color: '#ef4444', marginRight: 8, fontWeight: 'bold' }}>●</span>
+              <Link
+                href={t.newsUrl || '#'}
+                style={{ color: '#f8fafc', textDecoration: 'none', fontWeight: 600 }}
+              >
+                {t.textBn}
               </Link>
-            ))}
-          </div>
+            </span>
+          ))}
         </div>
       </div>
+
+      <style jsx>{`
+        @keyframes fastMarquee {
+          0% { transform: translate3d(0, 0, 0); }
+          100% { transform: translate3d(-100%, 0, 0); }
+        }
+      `}</style>
     </div>
   )
 }
