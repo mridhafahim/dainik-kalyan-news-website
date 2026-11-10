@@ -11,7 +11,6 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   const [tickers, setTickers] = useState<TickerItem[]>([])
   const [weather, setWeather] = useState('যশোর: ২৮° সে. · রোদোজ্জ্বল')
 
-  // আজকের তারিখ
   const now = new Date()
   const banglaDate = now.toLocaleDateString('bn-BD', {
     weekday: 'long',
@@ -26,7 +25,6 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
   })
 
   useEffect(() => {
-    // ব্রেকিং টিকার লোড
     fetch('/api/newsroom')
       .then(res => res.json())
       .then(data => {
@@ -34,7 +32,6 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       })
       .catch(() => {})
 
-    // লাইভ আবহাওয়া (Open-Meteo থেকে যশোরের আবহাওয়া)
     fetch('https://api.open-meteo.com/v1/forecast?latitude=23.16&longitude=89.21&current_weather=true')
       .then(res => res.json())
       .then(data => {
@@ -48,7 +45,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: '#faf9f6', color: '#0f172a' }}>
-      {/* 1. TOP UTILITY BAR (Live Weather, Real Dates & Socials) */}
+      {/* 1. TOP UTILITY BAR (Live Weather, Real Dates & Official Social Logos) */}
       <header style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: 13, color: '#475569' }}>
         <div style={{ maxWidth: 1380, width: '94%', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -59,15 +56,28 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
             <span style={{ color: '#c8102e', fontWeight: 600 }}>🌤️ {weather}</span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <Link href="/epaper" style={{ color: '#c8102e', textDecoration: 'none', fontWeight: 700 }}>
               📰 আজকের ই-পেপার
             </Link>
             <span style={{ color: '#cbd5e1' }}>|</span>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" style={{ color: '#1877f2', textDecoration: 'none', fontWeight: 'bold' }}>Facebook</a>
-              <a href="https://youtube.com" target="_blank" rel="noopener noreferrer" style={{ color: '#ff0000', textDecoration: 'none', fontWeight: 'bold' }}>YouTube</a>
-              <a href="https://x.com" target="_blank" rel="noopener noreferrer" style={{ color: '#000', textDecoration: 'none', fontWeight: 'bold' }}>X</a>
+            
+            {/* Official Social Media SVG Logos */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* Facebook Icon */}
+              <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" title="Facebook" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', background: '#1877f2', color: '#fff', textDecoration: 'none' }}>
+                <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M9 8H6v4h3v12h5V12h3.642L18 8h-4V6.333C14 5.374 14.5 5 15.5 5H18V0h-3.808C10.596 0 9 1.583 9 4.615V8z"/></svg>
+              </a>
+
+              {/* YouTube Icon */}
+              <a href="https://youtube.com" target="_blank" rel="noopener noreferrer" title="YouTube" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 26, borderRadius: 6, background: '#ff0000', color: '#fff', textDecoration: 'none' }}>
+                <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+              </a>
+
+              {/* X (Twitter) Icon */}
+              <a href="https://x.com" target="_blank" rel="noopener noreferrer" title="X (Twitter)" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: '50%', background: '#000', color: '#fff', textDecoration: 'none' }}>
+                <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+              </a>
             </div>
           </div>
         </div>
@@ -127,7 +137,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       {/* PAGE CONTENT */}
       <div style={{ flex: 1 }}>{children}</div>
 
-      {/* 5. PROTHOM ALO & KALBELA STYLE RICH FOOTER */}
+      {/* 5. PROTHOM ALO & KALBELA STYLE RICH FOOTER (Without Admin Login) */}
       <footer style={{ background: '#0f172a', color: '#f8fafc', borderTop: '4px solid #c8102e', marginTop: 60, padding: '48px 0 24px' }}>
         <div style={{ maxWidth: 1380, width: '94%', margin: '0 auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 36, borderBottom: '1px solid #334155', paddingBottom: 36 }}>
@@ -163,7 +173,7 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            {/* Column 3: Special Initiatives */}
+            {/* Column 3: Special Initiatives (Admin login removed completely) */}
             <div>
               <h3 style={{ fontSize: 16, color: '#fff', borderBottom: '2px solid #ef4444', paddingBottom: 8, marginBottom: 14 }}>
                 বিশেষ আয়োজন
@@ -173,21 +183,28 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
                 <Link href="/" style={{ color: '#94a3b8', textDecoration: 'none' }}>ভিডিও গ্যালারি</Link>
                 <Link href="/" style={{ color: '#94a3b8', textDecoration: 'none' }}>ফটো গ্যালারি</Link>
                 <Link href="/" style={{ color: '#94a3b8', textDecoration: 'none' }}>বিজ্ঞাপন রেট ও নীতিমালা</Link>
-                <Link href="/dainik-kalyan-control-panel/login" style={{ color: '#ef4444', textDecoration: 'none', fontWeight: 600 }}>
-                  অ্যাডমিন লগইন ↗
-                </Link>
+                <Link href="/epaper" style={{ color: '#94a3b8', textDecoration: 'none' }}>আর্কাইভ</Link>
               </div>
             </div>
 
-            {/* Column 4: Socials */}
+            {/* Column 4: Official Social Badges */}
             <div>
               <h3 style={{ fontSize: 16, color: '#fff', borderBottom: '2px solid #ef4444', paddingBottom: 8, marginBottom: 14 }}>
                 আমাদের সাথে থাকুন
               </h3>
               <p style={{ fontSize: 13, color: '#94a3b8' }}>সোশ্যাল মিডিয়ায় সর্বশেষ খবরের আপডেট পেতে যুক্ত হোন:</p>
-              <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-                <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" style={{ background: '#1877f2', color: '#fff', padding: '8px 14px', borderRadius: 6, textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>Facebook</a>
-                <a href="https://youtube.com" target="_blank" rel="noopener noreferrer" style={{ background: '#ff0000', color: '#fff', padding: '8px 14px', borderRadius: 6, textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>YouTube</a>
+              <div style={{ display: 'flex', gap: 12, marginTop: 14 }}>
+                {/* Facebook Badge */}
+                <a href="https://facebook.com" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1877f2', color: '#fff', padding: '8px 16px', borderRadius: 6, textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+                  <svg width="16" height="16" fill="currentColor" viewBox="0 0 24 24"><path d="M9 8H6v4h3v12h5V12h3.642L18 8h-4V6.333C14 5.374 14.5 5 15.5 5H18V0h-3.808C10.596 0 9 1.583 9 4.615V8z"/></svg>
+                  Facebook
+                </a>
+
+                {/* YouTube Badge */}
+                <a href="https://youtube.com" target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#ff0000', color: '#fff', padding: '8px 16px', borderRadius: 6, textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+                  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                  YouTube
+                </a>
               </div>
             </div>
           </div>

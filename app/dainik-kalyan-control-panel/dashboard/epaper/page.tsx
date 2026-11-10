@@ -18,7 +18,7 @@ type Region = {
   points?: Array<{ x: number; y: number }>
   articleId?: number | null
   targetPageNumber?: number | null
-  targetUrl?: string | null // ব্যবহৃত হয় ইউনিক স্টোরি গ্রুপ (group:xxx) সংরক্ষণে
+  targetUrl?: string | null
 }
 type Article = { id: number; titleBn: string }
 
@@ -43,7 +43,7 @@ export default function EpaperAdmin() {
   const [isSpecial, setIsSpecial] = useState(false)
   const [specialNameInput, setSpecialNameInput] = useState('')
 
-  // ইউনিক সংবাদ জোড় বাঁধার স্টেট (Active Story Group ID)
+  // ইউনিক সংবাদ গ্রুপ ট্র্যাকিং
   const [activeStoryGroupId, setActiveStoryGroupId] = useState<string | null>(null)
   const [linkingFromPage, setLinkingFromPage] = useState<number | null>(null)
 
@@ -123,47 +123,50 @@ export default function EpaperAdmin() {
       })
   }
 
-  // অটো-সেভ করে ২য় পাতায় জাম্প করা এবং ইউনিক গ্রুপ তৈরি
+  // ১০০% নির্ভরযোগ্য অটো-সেভ করে ২য় পাতায় জাম্প
   async function jumpToContinuationPage(regionIndex: number, targetPageNum: number) {
     if (!pageId) return
 
     const reg = regions[regionIndex]
-    // এই খবরের জন্য একটি ইউনিক গ্রুপ আইডি তৈরি (যদি আগে না থাকে)
+    // এই খবরের জন্য পার্মানেন্ট ইউনিক গ্রুপ আইডি
     const uniqueGroupId = reg.targetUrl && reg.targetUrl.startsWith('group:')
       ? reg.targetUrl
-      : `group:story_${Date.now()}_${Math.floor(Math.random() * 1000)}`
+      : `group:story_${Date.now()}_${Math.floor(Math.random() * 10000)}`
 
-    // ১ নম্বর পাতার এই অঞ্চলটিতে ইউনিক গ্রুপ আইডি সেট করা
-    const updatedRegions = regions.map((r, idx) => idx === regionIndex ? { ...r, targetUrl: uniqueGroupId, targetPageNumber: targetPageNum } : r)
+    const updatedRegions = regions.map((r, idx) =>
+      idx === regionIndex ? { ...r, targetUrl: uniqueGroupId, targetPageNumber: targetPageNum } : r
+    )
     setRegions(updatedRegions)
 
-    setMessage(`⏳ পৃষ্ঠা ${selectedPage?.pageNumber}-এর কাটিং সেভ হচ্ছে...`)
+    setMessage(`⏳ পৃষ্ঠা ${selectedPage?.pageNumber}-এর কাটিং সংরক্ষণ হচ্ছে...`)
     setSaving(true)
 
-    // ১. ডেটাবেসে আগে পৃষ্ঠা ১ সেভ করা
-    const saveRes = await fetch('/api/admin/epaper', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pageId, regions: updatedRegions })
-    })
+    try {
+      const saveRes = await fetch('/api/admin/epaper', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pageId, regions: updatedRegions })
+      })
 
-    setSaving(false)
+      const saveResult = await saveRes.json()
 
-    if (!saveRes.ok) {
-      setMessage('❌ পৃষ্ঠা ১ সেভ ব্যর্থ হয়েছে।')
-      return
-    }
+      if (!saveRes.ok) {
+        setMessage(`❌ সংরক্ষণ ব্যর্থ: ${saveResult.error || 'ত্রুটি'}`)
+        setSaving(false)
+        return
+      }
 
-    setMessage(`✅ পৃষ্ঠা ১-এর কাটিং গ্রুপে সংরক্ষিত হয়েছে! এখন পৃষ্ঠা ${targetPageNum}-এ যাওয়া হচ্ছে...`)
+      setMessage(`✅ পৃষ্ঠা ${selectedPage?.pageNumber}-এর কাটিং সফলভাবে ডেটাবেসে সংরক্ষিত হয়েছে! এখন পৃষ্ঠা ${targetPageNum}-এ যাওয়া হচ্ছে...`)
+      setSaving(false)
 
-    // ২ নম্বর পাতায় আঁকার জন্য গ্রুপ আইডি ও অরিজিন পেজ সেট রাখা
-    setActiveStoryGroupId(uniqueGroupId)
-    setLinkingFromPage(selectedPage?.pageNumber || 1)
+      setActiveStoryGroupId(uniqueGroupId)
+      setLinkingFromPage(selectedPage?.pageNumber || 1)
 
-    // টার্গেট পেজে সুইচ করা
-    const targetP = pages.find(p => p.pageNumber === targetPageNum)
-    if (targetP) {
-      switchPage(targetP.id)
+      const targetP = pages.find(p => p.pageNumber === targetPageNum)
+      if (targetP) switchPage(targetP.id)
+    } catch (err: any) {
+      setMessage(`❌ সমস্যা: ${err?.message || 'সার্ভার সংযোগ ত্রুটি'}`)
+      setSaving(false)
     }
   }
 
@@ -336,7 +339,6 @@ export default function EpaperAdmin() {
 
     if (width < 0.015 || height < 0.015) return
 
-    // যদি কোনো আগের পেজের খবরের কন্টিনিউয়েশন কাটা হয়, তবে সেই গ্রুপ আইডি এসাইন করা
     const assignedGroup = activeStoryGroupId ? activeStoryGroupId : null
 
     const newRegion: Region = {
@@ -356,7 +358,7 @@ export default function EpaperAdmin() {
     setSelectedRegionIndex(regions.length)
 
     if (activeStoryGroupId && linkingFromPage) {
-      setMessage(`✅ পৃষ্ঠা ${linkingFromPage}-এর নির্দিষ্ট খবরের সাথে এই কলামটি নির্ভুলভাবে সংযুক্ত হয়েছে! নিচে "সব লিংক সংরক্ষণ করুন" চাপুন।`)
+      setMessage(`✅ পৃষ্ঠা ${linkingFromPage}-এর নির্দিষ্ট সংবাদের সাথে এই অংশটি জোড়া লেগেছে! নিচে "সব লিংক সংরক্ষণ করুন" চাপুন।`)
       setActiveStoryGroupId(null)
       setLinkingFromPage(null)
     }
@@ -400,7 +402,7 @@ export default function EpaperAdmin() {
     setHoverPoint(null)
 
     if (activeStoryGroupId && linkingFromPage) {
-      setMessage(`✅ পৃষ্ঠা ${linkingFromPage}-এর নির্দিষ্ট খবরের সাথে বহুভুজ কলামটি সংযুক্ত হয়েছে!`)
+      setMessage(`✅ পৃষ্ঠা ${linkingFromPage}-এর সংবাদের সাথে বহুভুজ কলামটি সংযুক্ত হয়েছে!`)
       setActiveStoryGroupId(null)
       setLinkingFromPage(null)
     }
@@ -427,15 +429,24 @@ export default function EpaperAdmin() {
   async function saveRegions() {
     if (!pageId) return setMessage('কোনো পৃষ্ঠা নির্বাচন করা নেই')
     setSaving(true)
-    const response = await fetch('/api/admin/epaper', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pageId, regions })
-    })
-    const data = await response.json()
-    setSaving(false)
-    setMessage(response.ok ? '✅ এই পৃষ্ঠার সব লিংক সফলভাবে ডেটাবেসে সংরক্ষিত হয়েছে' : (data.error || 'সংরক্ষণ ব্যর্থ'))
-    if (response.ok) void loadData(editionId, pageId)
+    try {
+      const response = await fetch('/api/admin/epaper', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pageId, regions })
+      })
+      const data = await response.json()
+      setSaving(false)
+      if (response.ok) {
+        setMessage('✅ এই পৃষ্ঠার সব লিংক সফলভাবে সংরক্ষিত হয়েছে!')
+        void loadData(editionId, pageId)
+      } else {
+        setMessage(`❌ সংরক্ষণ ব্যর্থ: ${data.error || 'ত্রুটি'}`)
+      }
+    } catch (err: any) {
+      setSaving(false)
+      setMessage(`❌ সমস্যা: ${err?.message || 'ত্রুটি'}`)
+    }
   }
 
   async function publish(status: 'published' | 'draft') {
@@ -619,7 +630,6 @@ export default function EpaperAdmin() {
             ))}
           </div>
 
-          {/* Selected Page Special Edition Tagging Box */}
           {selectedPage && (
             <div style={{ marginTop: 16, padding: 14, background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
               <strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
@@ -805,7 +815,6 @@ export default function EpaperAdmin() {
                         </button>
                       </div>
 
-                      {/* নির্ভুল ইউনিক জোড় বাঁধার বাটন */}
                       {reg.targetPageNumber && (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#e0f2fe', padding: '10px 14px', borderRadius: 6 }}>
                           <span style={{ fontSize: 13, color: '#0369a1', fontWeight: 600 }}>
