@@ -1,387 +1,335 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import type React from 'react'
-import { PageTitle } from '@/components/admin/AdminUi'
+import { useEffect, useRef, useState } from 'react';
+import type React from 'react';
+import { PageTitle } from '@/components/admin/AdminUi';
+import { BookOpen, Calendar, Edit3, Trash2, ZoomIn, ZoomOut, RotateCcw, Square, Check, X, Link2 } from 'lucide-react';
 
-type Edition = { id: number; editionDate: string; title: string; status: string }
-type Page = { id: number; pageNumber: number; imagePath: string; width: number; height: number; specialName?: string | null }
-type Shape = 'rect' | 'l' | 't' | 'polygon'
+type Edition = { id: number; editionDate: string; title: string; status: string; isSpecial?: boolean; specialName?: string };
+type Page = { id: number; pageNumber: number; imagePath: string; width: number; height: number };
+type Shape = 'rect' | 'l' | 't' | 'polygon';
 type Region = {
-  id?: number
-  pageId?: number
-  x: number | string
-  y: number | string
-  width: number | string
-  height: number | string
-  shapeType?: Shape
-  points?: Array<{ x: number; y: number }>
-  articleId?: number | null
-  targetPageNumber?: number | null
-  targetUrl?: string | null
-}
-type Article = { id: number; titleBn: string }
+  id?: number;
+  pageId?: number;
+  x: number | string;
+  y: number | string;
+  width: number | string;
+  height: number | string;
+  shapeType?: Shape;
+  points?: Array<{ x: number; y: number }>;
+  articleId?: number | null;
+  targetPageNumber?: number | null;
+  targetUrl?: string | null;
+};
+type Article = { id: number; titleBn: string };
+
+const percent = (value: number | string) => Number(value) * 100;
+
+// আজকের স্থানীয় তারিখ ফরম্যাট (GMT+6 সেফ)
+const getTodayLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 export default function EpaperAdmin() {
-  const [editions, setEditions] = useState<Edition[]>([])
-  const [editionId, setEditionId] = useState<number>()
-  const [pages, setPages] = useState<Page[]>([])
-  const [pageId, setPageId] = useState<number>()
-  const [articles, setArticles] = useState<Article[]>([])
-  const [regions, setRegions] = useState<Region[]>([])
-  const [selectedRegionIndex, setSelectedRegionIndex] = useState<number | null>(null)
+  const [editions, setEditions] = useState<Edition[]>([]);
+  const [editionId, setEditionId] = useState<number>();
+  const [pages, setPages] = useState<Page[]>([]);
+  const [pageId, setPageId] = useState<number>();
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [regions, setRegions] = useState<Region[]>([]);
+  const [allRegions, setAllRegions] = useState<(Region & { pageId: number })[]>([]);
 
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [title, setTitle] = useState('দৈনিক কল্যাণ')
-  const [message, setMessage] = useState('')
-  const [shape, setShape] = useState<Shape>('rect')
-  const [publishing, setPublishing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null)
+  // ফর্ম ও তারিখ স্টেট (ডিফল্ট আজকের তারিখ)
+  const [date, setDate] = useState<string>(getTodayLocal());
+  const [title, setTitle] = useState('দৈনিক কল্যাণ');
+  const [isSpecial, setIsSpecial] = useState(false);
+  const [specialName, setSpecialName] = useState('');
+  const [isEditingEdition, setIsEditingEdition] = useState(false);
 
-  const [isSpecial, setIsSpecial] = useState(false)
-  const [specialNameInput, setSpecialNameInput] = useState('')
+  // ২ পাতার ধারাবাহিক খবরের চলমান সেশন টোকেন
+  const [pendingStoryToken, setPendingStoryToken] = useState<string | null>(null);
+  const [pendingFromPage, setPendingFromPage] = useState<number | null>(null);
 
-  // ইউনিক সংবাদ গ্রুপ ট্র্যাকিং
-  const [activeStoryGroupId, setActiveStoryGroupId] = useState<string | null>(null)
-  const [linkingFromPage, setLinkingFromPage] = useState<number | null>(null)
+  const [message, setMessage] = useState('');
+  const [publishing, setPublishing] = useState(false);
+  const [zoom, setZoom] = useState(100);
 
-  const [zoom, setZoom] = useState<number>(1.2)
+  // শেপ ও ড্রয়িং স্টেট
+  const [selectedShape, setSelectedShape] = useState<Shape>('rect');
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [currentMouse, setCurrentMouse] = useState<{ x: number; y: number } | null>(null);
+  const [polygonPoints, setPolygonPoints] = useState<Array<{ x: number; y: number }>>([]);
+  const [selectedTarget, setSelectedTarget] = useState('');
 
-  const [isDrawing, setIsDrawing] = useState(false)
-  const [startPoint, setStartPoint] = useState<{ x: number; y: number } | null>(null)
-  const [currentPoint, setCurrentPoint] = useState<{ x: number; y: number } | null>(null)
-  const [polyPoints, setPolyPoints] = useState<Array<{ x: number; y: number }>>([])
-  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null)
+  const canvas = useRef<HTMLDivElement>(null);
 
-  const canvasRef = useRef<HTMLDivElement>(null)
-
-  async function loadData(targetEditionId?: number, preservePageId?: number) {
+  async function load(id = editionId) {
     try {
-      const activeId = targetEditionId ?? editionId
-      const response = await fetch(`/api/epaper?admin=1${activeId ? `&edition=${activeId}` : ''}`)
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'ই-পেপার ডেটা লোড ব্যর্থ')
+      const response = await fetch(`/api/admin/epaper${id ? `?edition=${id}` : ''}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'ই-পেপার লোড ব্যর্থ');
 
-      setEditions(data.editions || [])
-      setArticles(data.articles || [])
+      setEditions(data.editions || []);
+      setArticles(data.articles || []);
+      const current = data.edition;
 
-      const current = data.current
       if (!current) {
-        setPages([])
-        setRegions([])
-        setPageId(undefined)
-        return
+        setPages([]);
+        setAllRegions([]);
+        setRegions([]);
+        return;
       }
 
-      setEditionId(current.edition.id)
-      setDate(current.edition.editionDate || '')
-      setTitle(current.edition.title || 'দৈনিক কল্যাণ')
+      setEditionId(current.id);
+      setDate(current.editionDate);
+      setTitle(current.title);
+      setIsSpecial(Boolean(current.isSpecial));
+      setSpecialName(current.specialName || '');
 
-      const currentPages: Page[] = current.pages || []
-      setPages(currentPages)
+      setPages(data.pages || []);
+      const flattenedRegions: (Region & { pageId: number })[] = [];
+      data.pages?.forEach((p: any) => {
+        p.regions?.forEach((r: any) => {
+          flattenedRegions.push({ ...r, pageId: p.id });
+        });
+      });
+      setAllRegions(flattenedRegions);
 
-      const targetPage = preservePageId && currentPages.some(p => p.id === preservePageId)
-        ? preservePageId
-        : currentPages[0]?.id
-
-      setPageId(targetPage)
-
-      const activeP = currentPages.find(p => p.id === targetPage)
-      setIsSpecial(Boolean(activeP?.specialName))
-      setSpecialNameInput(activeP?.specialName || '')
-
-      if (targetPage) {
-        const pageRegions = (current.allRegions || []).filter((r: Region & { pageId: number }) => r.pageId === targetPage)
-        setRegions(pageRegions)
-      } else {
-        setRegions([])
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'লোড করতে সমস্যা হয়েছে')
+      const selectedPage = pageId && data.pages?.some((p: Page) => p.id === pageId) ? pageId : data.pages?.[0]?.id;
+      setPageId(selectedPage);
+      setRegions(flattenedRegions.filter(r => r.pageId === selectedPage));
+    } catch (error: any) {
+      setMessage(error.message || 'ই-পেপার লোড ব্যর্থ');
     }
   }
 
   useEffect(() => {
-    void loadData()
-  }, [])
+    void load();
+  }, [editionId]);
 
-  function switchPage(newPageId: number) {
-    setPageId(newPageId)
-    setSelectedRegionIndex(null)
-    setPolyPoints([])
-    const targetP = pages.find(p => p.id === newPageId)
-    setIsSpecial(Boolean(targetP?.specialName))
-    setSpecialNameInput(targetP?.specialName || '')
-
-    void fetch(`/api/epaper?admin=1&edition=${editionId}`)
-      .then(res => res.json())
-      .then(data => {
-        const pageRegions = (data.current?.allRegions || []).filter((r: Region & { pageId: number }) => r.pageId === newPageId)
-        setRegions(pageRegions)
-      })
-  }
-
-  // ১০০% নির্ভরযোগ্য অটো-সেভ করে ২য় পাতায় জাম্প
-  async function jumpToContinuationPage(regionIndex: number, targetPageNum: number) {
-    if (!pageId) return
-
-    const reg = regions[regionIndex]
-    // এই খবরের জন্য পার্মানেন্ট ইউনিক গ্রুপ আইডি
-    const uniqueGroupId = reg.targetUrl && reg.targetUrl.startsWith('group:')
-      ? reg.targetUrl
-      : `group:story_${Date.now()}_${Math.floor(Math.random() * 10000)}`
-
-    const updatedRegions = regions.map((r, idx) =>
-      idx === regionIndex ? { ...r, targetUrl: uniqueGroupId, targetPageNumber: targetPageNum } : r
-    )
-    setRegions(updatedRegions)
-
-    setMessage(`⏳ পৃষ্ঠা ${selectedPage?.pageNumber}-এর কাটিং সংরক্ষণ হচ্ছে...`)
-    setSaving(true)
+  // নতুন তারিখের জন্য সম্পূর্ণ নতুন সংখ্যা তৈরি
+  async function createNewEdition() {
+    if (!date) {
+      setMessage('অনুগ্রহ করে একটি সঠিক তারিখ দিন।');
+      return;
+    }
 
     try {
-      const saveRes = await fetch('/api/admin/epaper', {
-        method: 'PUT',
+      const response = await fetch('/api/admin/epaper', {
+        method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ pageId, regions: updatedRegions })
-      })
+        body: JSON.stringify({ editionDate: date, title, isSpecial, specialName }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'সংস্করণ তৈরি ব্যর্থ');
 
-      const saveResult = await saveRes.json()
-
-      if (!saveRes.ok) {
-        setMessage(`❌ সংরক্ষণ ব্যর্থ: ${saveResult.error || 'ত্রুটি'}`)
-        setSaving(false)
-        return
+      setMessage(`তারিখ ${date}-এর জন্য নতুন সংখ্যা সফলভাবে তৈরি হয়েছে। এখন পৃষ্ঠা আপলোড করুন।`);
+      if (data.edition) {
+        setEditionId(data.edition.id);
+        setPages([]);
+        setRegions([]);
+        setPageId(undefined);
+        void load(data.edition.id);
       }
-
-      setMessage(`✅ পৃষ্ঠা ${selectedPage?.pageNumber}-এর কাটিং সফলভাবে ডেটাবেসে সংরক্ষিত হয়েছে! এখন পৃষ্ঠা ${targetPageNum}-এ যাওয়া হচ্ছে...`)
-      setSaving(false)
-
-      setActiveStoryGroupId(uniqueGroupId)
-      setLinkingFromPage(selectedPage?.pageNumber || 1)
-
-      const targetP = pages.find(p => p.pageNumber === targetPageNum)
-      if (targetP) switchPage(targetP.id)
     } catch (err: any) {
-      setMessage(`❌ সমস্যা: ${err?.message || 'সার্ভার সংযোগ ত্রুটি'}`)
-      setSaving(false)
+      setMessage(err.message);
     }
   }
 
-  async function createEdition() {
-    if (!date) return setMessage('তারিখ নির্বাচন করুন')
-    const response = await fetch('/api/admin/epaper', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ editionDate: date, title })
-    })
-    const data = await response.json()
-    setMessage(data.error || 'সংস্করণ সফলভাবে সংরক্ষিত হয়েছে')
-    if (data.edition) {
-      setEditionId(data.edition.id)
-      void loadData(data.edition.id)
+  // নির্বাচিত বর্তমান সংস্করণের তারিখ বা শিরোনাম আপডেট
+  async function updateEdition() {
+    if (!editionId) return;
+    try {
+      const response = await fetch('/api/admin/epaper', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ editionId, title, isSpecial, specialName, editionDate: date }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'আপডেট ব্যর্থ');
+
+      setMessage('সংস্করণের তথ্য সফলভাবে আপডেট হয়েছে।');
+      setIsEditingEdition(false);
+      void load(editionId);
+    } catch (err: any) {
+      setMessage(err.message);
     }
   }
 
+  // পুরো সংস্করণ মুছে ফেলা
   async function deleteCurrentEdition() {
-    if (!editionId) return
-    if (!confirm('আপনি কি নিশ্চিত যে এই পুরো সংস্করণটি সব পেজসহ ডিলিট করতে চান?')) return
-    const res = await fetch(`/api/admin/epaper?editionId=${editionId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setMessage('সংস্করণ সম্পূর্ণ মুছে ফেলা হয়েছে')
-      setEditionId(undefined)
-      setPages([])
-      setRegions([])
-      void loadData()
+    if (!editionId || !confirm('আপনি কি নিশ্চিত এই পুরো সংস্করণ এবং এর সকল পৃষ্ঠা মুছে ফেলতে চান?')) return;
+    try {
+      const response = await fetch(`/api/admin/epaper?editionId=${editionId}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'মুছে ফেলা ব্যর্থ');
+
+      setMessage('সংস্করণ মুছে ফেলা হয়েছে।');
+      setEditionId(undefined);
+      setDate(getTodayLocal());
+      void load();
+    } catch (err: any) {
+      setMessage(err.message);
     }
   }
 
-  async function deleteSinglePage(pageToDeleteId: number, e: React.MouseEvent) {
-    e.stopPropagation()
-    if (!confirm('আপনি কি এই পৃষ্ঠাটি ডিলিট করতে চান?')) return
-    const res = await fetch(`/api/admin/epaper?pageId=${pageToDeleteId}`, { method: 'DELETE' })
-    if (res.ok) {
-      setMessage('পৃষ্ঠাটি ডিলিট হয়েছে')
-      void loadData(editionId)
+  // একক পৃষ্ঠা ডিলিট
+  async function deleteSinglePage(pId: number) {
+    if (!confirm('এই পৃষ্ঠাটি মুছে ফেলতে চান?')) return;
+    try {
+      const response = await fetch(`/api/admin/epaper?pageId=${pId}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'পৃষ্ঠা মুছে ফেলা ব্যর্থ');
+
+      setMessage('পৃষ্ঠাটি মুছে ফেলা হয়েছে।');
+      void load(editionId);
+    } catch (err: any) {
+      setMessage(err.message);
     }
   }
 
-  async function saveSpecialTag() {
-    if (!pageId) return
-    const nameToSave = isSpecial ? (specialNameInput.trim() || 'বিশেষ সংখ্যা') : null
-    const res = await fetch('/api/admin/epaper', {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pageId, specialName: nameToSave })
-    })
-    if (res.ok) {
-      setMessage(isSpecial ? `✅ এই পৃষ্ঠাটি "${nameToSave}" হিসেবে ট্যাগ হয়েছে!` : 'সাধারণ সংখ্যায় ফেরত নেওয়া হয়েছে।')
-      setPages(prev => prev.map(p => p.id === pageId ? { ...p, specialName: nameToSave } : p))
-    }
-  }
+  // পৃষ্ঠা আপলোড
+  async function uploadPages(files: FileList | null) {
+    if (!editionId) return setMessage('আগে একটি তারিখ নির্বাচন করে নতুন সংখ্যা তৈরি বা নির্বাচন করুন');
+    if (!files?.length) return;
 
-  async function uploadSelectedPages() {
-    if (!editionId) return setMessage('আগে উপরে সংস্করণ তৈরি করুন')
-    if (!selectedFiles || !selectedFiles.length) return setMessage('আগে ছবি নির্বাচন করুন')
+    setMessage(`${files.length}টি পৃষ্ঠা আপলোড হচ্ছে...`);
+    for (let index = 0; index < files.length; index++) {
+      const form = new FormData();
+      form.append('file', files[index]);
 
-    setUploading(true)
-    setMessage(`${selectedFiles.length}টি পৃষ্ঠা আপলোড হচ্ছে...`)
+      const upload = await fetch('/api/admin/epaper/upload', { method: 'POST', body: form }).then(r => r.json());
+      if (!upload.url) {
+        setMessage(upload.error || 'আপলোড ব্যর্থ');
+        return;
+      }
 
-    let uploadedCount = 0
-    let firstNewPageId: number | undefined
+      const image = new Image();
+      image.src = upload.url;
+      await new Promise(res => { image.onload = res; image.onerror = res; });
 
-    for (let index = 0; index < selectedFiles.length; index++) {
-      const form = new FormData()
-      form.append('file', selectedFiles[index])
+      const pageNumber = pages.length + index + 1;
+      const saved = await fetch('/api/admin/epaper', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          editionId,
+          pageNumber,
+          imagePath: upload.url,
+          width: image.naturalWidth || 1200,
+          height: image.naturalHeight || 1800,
+        }),
+      });
 
-      try {
-        const uploadRes = await fetch('/api/admin/epaper/upload', { method: 'POST', body: form })
-        const upload = await uploadRes.json()
-
-        if (!upload.url) {
-          setMessage(`পৃষ্ঠা ${index + 1} আপলোড ব্যর্থ: ${upload.error || 'ত্রুটি'}`)
-          setUploading(false)
-          return
-        }
-
-        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const item = new Image()
-          item.onload = () => resolve(item)
-          item.onerror = reject
-          item.src = upload.url
-        })
-
-        const pageNumber = pages.length + index + 1
-        const saved = await fetch('/api/admin/epaper', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            editionId,
-            pageNumber,
-            imagePath: upload.url,
-            width: image.naturalWidth,
-            height: image.naturalHeight
-          })
-        })
-
-        const savedData = await saved.json()
-        if (index === 0 && savedData.page?.id) firstNewPageId = savedData.page.id
-        uploadedCount++
-        setMessage(`${uploadedCount}/${selectedFiles.length}টি পৃষ্ঠা আপলোড সম্পন্ন...`)
-      } catch (err) {
-        setMessage(`আপলোডে সমস্যা: ${err instanceof Error ? err.message : 'ত্রুটি'}`)
-        setUploading(false)
-        return
+      if (!saved.ok) {
+        const data = await saved.json();
+        setMessage(data.error || 'পৃষ্ঠা সংরক্ষণ ব্যর্থ');
+        return;
       }
     }
-
-    setUploading(false)
-    setSelectedFiles(null)
-    setMessage('সব পৃষ্ঠা সফলভাবে আপলোড হয়েছে!')
-    void loadData(editionId, firstNewPageId)
+    setMessage('সব পৃষ্ঠা সফলভাবে যোগ হয়েছে।');
+    void load(editionId);
   }
 
-  function getRelativeCoords(event: React.PointerEvent) {
-    const rect = canvasRef.current?.getBoundingClientRect()
-    if (!rect) return null
+  // ড্রয়িং কোঅর্ডিনেট
+  function getCoordinates(event: React.PointerEvent) {
+    const rect = canvas.current?.getBoundingClientRect();
+    if (!rect) return null;
     return {
       x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)),
-      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))
-    }
+      y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)),
+    };
   }
 
   function handlePointerDown(event: React.PointerEvent) {
-    if (event.button !== 0) return
-    const pt = getRelativeCoords(event)
-    if (!pt) return
+    const coords = getCoordinates(event);
+    if (!coords) return;
 
-    if (shape === 'polygon') {
-      if (polyPoints.length >= 3) {
-        const start = polyPoints[0]
-        const dist = Math.hypot(pt.x - start.x, pt.y - start.y)
-        if (dist < 0.025) {
-          finishPolygon()
-          return
-        }
-      }
-      setPolyPoints(prev => [...prev, pt])
-      return
+    if (selectedShape === 'polygon') {
+      setPolygonPoints(prev => [...prev, coords]);
+    } else {
+      setIsDragging(true);
+      setDragStart(coords);
+      setCurrentMouse(coords);
     }
-
-    setIsDrawing(true)
-    setStartPoint(pt)
-    setCurrentPoint(pt)
   }
 
   function handlePointerMove(event: React.PointerEvent) {
-    const pt = getRelativeCoords(event)
-    if (!pt) return
-    if (shape === 'polygon') setHoverPoint(pt)
-    else if (isDrawing) setCurrentPoint(pt)
+    const coords = getCoordinates(event);
+    if (!coords) return;
+    setCurrentMouse(coords);
   }
 
-  function handlePointerUp(event: React.PointerEvent) {
-    if (shape === 'polygon') return
-    if (!isDrawing || !startPoint) return
-    const endPoint = getRelativeCoords(event) || currentPoint
-    setIsDrawing(false)
-    setStartPoint(null)
-    setCurrentPoint(null)
+  function handlePointerUp() {
+    if (!isDragging || !dragStart || !currentMouse) return;
 
-    if (!endPoint) return
+    const x = Math.min(dragStart.x, currentMouse.x);
+    const y = Math.min(dragStart.y, currentMouse.y);
+    const width = Math.abs(currentMouse.x - dragStart.x);
+    const height = Math.abs(currentMouse.y - dragStart.y);
 
-    const x = Math.min(startPoint.x, endPoint.x)
-    const y = Math.min(startPoint.y, endPoint.y)
-    const width = Math.abs(endPoint.x - startPoint.x)
-    const height = Math.abs(endPoint.y - startPoint.y)
+    if (width > 0.015 && height > 0.015) {
+      let clipPoints: Array<{ x: number; y: number }> = [];
+      if (selectedShape === 'l') {
+        clipPoints = [{ x: 0, y: 0 }, { x: 0.38, y: 0 }, { x: 0.38, y: 0.62 }, { x: 1, y: 0.62 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+      } else if (selectedShape === 't') {
+        clipPoints = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 0.32 }, { x: 0.62, y: 0.32 }, { x: 0.62, y: 1 }, { x: 0.38, y: 1 }, { x: 0.38, y: 0.32 }, { x: 0, y: 0.32 }];
+      }
 
-    if (width < 0.015 || height < 0.015) return
+      // যদি আগের পাতা থেকে কোনো ধারাবাহিক খবর লিংক করার পেন্ডিং টোকেন থাকে, তা স্বয়ংক্রিয়ভাবে জুড়ে দেওয়া
+      const autoToken = pendingStoryToken ? `https://dainikkalyan.com/${pendingStoryToken}` : null;
+      const autoTargetPage = pendingFromPage ? pendingFromPage : null;
 
-    const assignedGroup = activeStoryGroupId ? activeStoryGroupId : null
+      const newRegion: Region = {
+        pageId,
+        x,
+        y,
+        width,
+        height,
+        shapeType: selectedShape,
+        points: clipPoints,
+        articleId: selectedTarget.startsWith('article:') ? Number(selectedTarget.split(':')[1]) : null,
+        targetPageNumber: selectedTarget.startsWith('page:') ? Number(selectedTarget.split(':')[1]) : autoTargetPage,
+        targetUrl: autoToken,
+      };
 
-    const newRegion: Region = {
-      pageId,
-      x,
-      y,
-      width,
-      height,
-      shapeType: shape,
-      points: [],
-      articleId: null,
-      targetPageNumber: linkingFromPage ? linkingFromPage : null,
-      targetUrl: assignedGroup
+      setRegions(current => [...current, newRegion]);
+
+      if (pendingStoryToken) {
+        setMessage('পৃষ্ঠা ১-এর সাথে পৃষ্ঠা ২-এর ধারাবাহিক খবরের সংযোগ সম্পন্ন হয়েছে! এখন "সব লিংক সংরক্ষণ করুন" চাপুন।');
+        setPendingStoryToken(null);
+        setPendingFromPage(null);
+      }
     }
 
-    setRegions(prev => [...prev, newRegion])
-    setSelectedRegionIndex(regions.length)
-
-    if (activeStoryGroupId && linkingFromPage) {
-      setMessage(`✅ পৃষ্ঠা ${linkingFromPage}-এর নির্দিষ্ট সংবাদের সাথে এই অংশটি জোড়া লেগেছে! নিচে "সব লিংক সংরক্ষণ করুন" চাপুন।`)
-      setActiveStoryGroupId(null)
-      setLinkingFromPage(null)
-    }
+    setIsDragging(false);
+    setDragStart(null);
   }
 
   function finishPolygon() {
-    if (polyPoints.length < 3) return setMessage('কমপক্ষে ৩টি পয়েন্ট নির্বাচন করুন')
+    if (polygonPoints.length < 3) {
+      alert('বহুভুজ তৈরি করতে কমপক্ষে ৩টি বিন্দু নির্বাচন করুন।');
+      return;
+    }
 
-    const xs = polyPoints.map(p => p.x)
-    const ys = polyPoints.map(p => p.y)
-    const minX = Math.min(...xs)
-    const maxX = Math.max(...xs)
-    const minY = Math.min(...ys)
-    const maxY = Math.max(...ys)
-    const width = Math.max(0.015, maxX - minX)
-    const height = Math.max(0.015, maxY - minY)
+    const xs = polygonPoints.map(p => p.x);
+    const ys = polygonPoints.map(p => p.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const width = Math.max(0.01, maxX - minX);
+    const height = Math.max(0.01, maxY - minY);
 
-    const normalizedPoints = polyPoints.map(p => ({
-      x: Number(((p.x - minX) / width).toFixed(4)),
-      y: Number(((p.y - minY) / height).toFixed(4))
-    }))
+    const relativePoints = polygonPoints.map(p => ({
+      x: (p.x - minX) / width,
+      y: (p.y - minY) / height,
+    }));
 
-    const assignedGroup = activeStoryGroupId ? activeStoryGroupId : null
+    const autoToken = pendingStoryToken ? `https://dainikkalyan.com/${pendingStoryToken}` : null;
+    const autoTargetPage = pendingFromPage ? pendingFromPage : null;
 
     const newRegion: Region = {
       pageId,
@@ -390,97 +338,105 @@ export default function EpaperAdmin() {
       width,
       height,
       shapeType: 'polygon',
-      points: normalizedPoints,
-      articleId: null,
-      targetPageNumber: linkingFromPage ? linkingFromPage : null,
-      targetUrl: assignedGroup
-    }
+      points: relativePoints,
+      articleId: selectedTarget.startsWith('article:') ? Number(selectedTarget.split(':')[1]) : null,
+      targetPageNumber: selectedTarget.startsWith('page:') ? Number(selectedTarget.split(':')[1]) : autoTargetPage,
+      targetUrl: autoToken,
+    };
 
-    setRegions(prev => [...prev, newRegion])
-    setSelectedRegionIndex(regions.length)
-    setPolyPoints([])
-    setHoverPoint(null)
+    setRegions(current => [...current, newRegion]);
+    setPolygonPoints([]);
 
-    if (activeStoryGroupId && linkingFromPage) {
-      setMessage(`✅ পৃষ্ঠা ${linkingFromPage}-এর সংবাদের সাথে বহুভুজ কলামটি সংযুক্ত হয়েছে!`)
-      setActiveStoryGroupId(null)
-      setLinkingFromPage(null)
+    if (pendingStoryToken) {
+      setMessage('পৃষ্ঠা ১-এর সাথে পৃষ্ঠা ২-এর ধারাবাহিক খবরের সংযোগ সম্পন্ন হয়েছে!');
+      setPendingStoryToken(null);
+      setPendingFromPage(null);
     }
   }
 
-  function updateRegionTarget(index: number, targetValue: string) {
-    setRegions(prev => prev.map((reg, idx) => {
-      if (idx !== index) return reg
-      if (targetValue.startsWith('article:')) {
-        return { ...reg, articleId: Number(targetValue.split(':')[1]), targetPageNumber: null }
-      }
-      if (targetValue.startsWith('page:')) {
-        return { ...reg, targetPageNumber: Number(targetValue.split(':')[1]), articleId: null }
-      }
-      return { ...reg, articleId: null, targetPageNumber: null }
-    }))
-  }
-
-  function deleteRegion(index: number) {
-    setRegions(prev => prev.filter((_, idx) => idx !== index))
-    if (selectedRegionIndex === index) setSelectedRegionIndex(null)
-  }
-
+  // অঞ্চল সংরক্ষণ
   async function saveRegions() {
-    if (!pageId) return setMessage('কোনো পৃষ্ঠা নির্বাচন করা নেই')
-    setSaving(true)
-    try {
-      const response = await fetch('/api/admin/epaper', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ pageId, regions })
-      })
-      const data = await response.json()
-      setSaving(false)
-      if (response.ok) {
-        setMessage('✅ এই পৃষ্ঠার সব লিংক সফলভাবে সংরক্ষিত হয়েছে!')
-        void loadData(editionId, pageId)
-      } else {
-        setMessage(`❌ সংরক্ষণ ব্যর্থ: ${data.error || 'ত্রুটি'}`)
+    if (!pageId) return;
+    const response = await fetch('/api/admin/epaper', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pageId, regions }),
+    });
+    const data = await response.json();
+    setMessage(response.ok ? 'সকল লিংক সফলভাবে সংরক্ষিত হয়েছে।' : data.error || 'সংরক্ষণ ব্যর্থ হয়েছে');
+    if (response.ok) void load(editionId);
+  }
+
+  // ২ পাতার ধারাবাহিক খবরের জন্য অটো-সেভ ও পেজ ট্রানজিশন
+  async function saveAndGoToNextPage(targetPageNum: number) {
+    if (!pageId || !selected) return;
+
+    // একটি নির্দিষ্ট ইউনিক স্টোরি টোকেন তৈরি
+    const storyToken = `group:story_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+
+    // বর্তমান পাতার অঞ্চলে এই টোকেন ও টার্গেট পেজ বসিয়ে সেভ করা
+    const updatedRegions = regions.map((r, i) => {
+      if (i === 0 || r.targetPageNumber === targetPageNum) {
+        return {
+          ...r,
+          targetPageNumber: targetPageNum,
+          targetUrl: `https://dainikkalyan.com/${storyToken}`,
+        };
       }
-    } catch (err: any) {
-      setSaving(false)
-      setMessage(`❌ সমস্যা: ${err?.message || 'ত্রুটি'}`)
+      return r;
+    });
+
+    const response = await fetch('/api/admin/epaper', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pageId, regions: updatedRegions }),
+    });
+
+    if (response.ok) {
+      // সেশনে টোকেন সংরক্ষণ যেন পরের পাতায় কাটলেই স্বয়ংক্রিয়ভাবে লিঙ্ক হয়ে যায়
+      setPendingStoryToken(storyToken);
+      setPendingFromPage(selected.pageNumber);
+
+      setMessage(`পৃষ্ঠা ${selected.pageNumber} সেভ সম্পন্ন। এখন পৃষ্ঠা ${targetPageNum}-এ বাকি অংশ ড্র্যাগ করে কেটে নিন।`);
+      const targetP = pages.find(p => p.pageNumber === targetPageNum);
+      if (targetP) {
+        setPageId(targetP.id);
+        setRegions(allRegions.filter(r => r.pageId === targetP.id));
+      }
+    } else {
+      const data = await response.json();
+      setMessage(data.error || 'সংরক্ষণ ব্যর্থ হয়েছে');
     }
   }
 
+  // প্রকাশনা স্ট্যাটাস
   async function publish(status: 'published' | 'draft') {
-    if (!editionId) return
-    setPublishing(true)
+    if (!editionId) return;
+    setPublishing(true);
     const response = await fetch('/api/admin/epaper', {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ editionId, status })
-    })
-    const data = await response.json()
-    setPublishing(false)
-    setMessage(response.ok
-      ? (status === 'published' ? '✅ ই-পেপার সফলভাবে প্রকাশিত হয়েছে।' : 'ই-পেপার খসড়ায় ফেরত নেওয়া হয়েছে।')
-      : (data.error || 'স্ট্যাটাস পরিবর্তন ব্যর্থ'))
-    if (response.ok) void loadData(editionId, pageId)
+      body: JSON.stringify({ editionId, status }),
+    });
+    const data = await response.json();
+    setMessage(response.ok ? (status === 'published' ? 'ই-পেপার প্রকাশিত হয়েছে।' : 'ই-পেপার খসড়ায় ফেরত নেওয়া হয়েছে।') : data.error || 'স্ট্যাটাস পরিবর্তন ব্যর্থ');
+    setPublishing(false);
+    if (response.ok) void load(editionId);
   }
 
-  const selectedPage = pages.find(p => p.id === pageId)
+  const selected = pages.find(p => p.id === pageId);
 
   return (
     <>
-      <PageTitle
-        title="ই-পেপার ওয়ার্কস্পেস ও কাটিং লিংক ম্যাপার"
-        subtitle="সংস্করণ তৈরি করুন, বিশেষ সংখ্যা ট্যাগ করুন এবং কলাম লিংক আঁকুন।"
-      />
+      <PageTitle title="ই-পেপার ও ম্যাগাজিন ওয়ার্কস্পেস" subtitle="নিয়মিত ও বিশেষ সংখ্যা/ম্যাগাজিন তৈরি, সম্পাদনা ও ভিজ্যুয়াল লিংক পরিচালনা করুন।" />
 
       <div className="epaper-workspace">
-        {/* Edition Setup */}
+        {/* সংখ্যা ও তারিখ সেটিংস */}
         <section className="admin-panel epaper-setup">
           <div className="workspace-heading">
             <div>
-              <h2>ইস্যু / সংস্করণ সেটআপ</h2>
-              <p>তারিখ ও নাম দিয়ে সংস্করণ পরিচালনা করুন।</p>
+              <h2>তারিখ ও সংখ্যা সেটিংস</h2>
+              <p>নতুন তারিখের পেপার তৈরি বা বিদ্যমান তারিখ এডিট করুন</p>
             </div>
             <span className={`status-pill status-${editions.find(item => item.id === editionId)?.status || 'draft'}`}>
               {editions.find(item => item.id === editionId)?.status || 'draft'}
@@ -489,363 +445,488 @@ export default function EpaperAdmin() {
 
           <div className="two-form-grid">
             <label>
-              প্রকাশের তারিখ
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+              প্রকাশনার তারিখ (Date)
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                style={{ fontSize: '15px', fontWeight: 700 }}
+              />
             </label>
             <label>
-              সংস্করণের নাম
-              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="যেমন: দৈনিক কল্যাণ" />
+              শিরোনাম (Title)
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="দৈনিক কল্যাণ" />
             </label>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button className="button button-green" onClick={createEdition} style={{ flex: 1 }}>
-              সংস্করণ তৈরি / আপডেট
+          <div style={{ background: '#fff1f2', padding: '12px', borderRadius: '8px', border: '1px solid #fecdd3', margin: '12px 0' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: '#9f1239', cursor: 'pointer' }}>
+              <input type="checkbox" checked={isSpecial} onChange={e => setIsSpecial(e.target.checked)} />
+              এটি একটি বিশেষ সংখ্যা / ম্যাগাজিন
+            </label>
+
+            {isSpecial && (
+              <label style={{ marginTop: '10px', display: 'block' }}>
+                বিশেষ সংখ্যা / ম্যাগাজিনের নাম
+                <input
+                  value={specialName}
+                  onChange={e => setSpecialName(e.target.value)}
+                  placeholder="যেমন: ঈদ সংখ্যা ২০২৬ / সাহিত্য সাময়িকী"
+                  style={{ width: '100%', marginTop: '4px', padding: '8px', borderRadius: '6px', border: '1px solid #f43f5e' }}
+                />
+              </label>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
+            <button
+              className="button button-green"
+              onClick={createNewEdition}
+              style={{ fontWeight: 800, padding: '10px 18px', background: '#16a34a' }}
+            >
+              ➕ {date} তারিখে নতুন সংখ্যা তৈরি করুন
             </button>
+
             {editionId && (
               <button
-                type="button"
-                onClick={deleteCurrentEdition}
-                style={{ background: '#fee2e2', color: '#dc2626', border: 0, padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}
-                title="এই পুরো সংস্করণটি ডিলিট করুন"
+                className="button button-ghost"
+                onClick={updateEdition}
+                style={{ fontWeight: 700, border: '1px solid #cbd5e1' }}
               >
-                🗑️ ডিলিট
+                <Edit3 size={15} /> বর্তমান সংখ্যার তারিখ/নাম আপডেট
               </button>
             )}
           </div>
 
-          <label style={{ marginTop: 14, display: 'block' }}>
-            সংস্করণ পরিবর্তন করুন
+          <label>
+            বিদ্যমান সংখ্যাসমূহ থেকে বেছে নিন:
             <select
               value={editionId || ''}
-              onChange={e => {
-                const id = Number(e.target.value)
-                setEditionId(id)
-                void loadData(id)
+              onChange={event => {
+                const id = Number(event.target.value);
+                setEditionId(id);
+                setPageId(undefined);
+                void load(id);
               }}
+              style={{ fontWeight: 700 }}
             >
-              <option value="">সংস্করণ নির্বাচন করুন</option>
+              <option value="">-- প্রকাশিত বা খসড়া সংখ্যা নির্বাচন করুন --</option>
               {editions.map(item => (
                 <option key={item.id} value={item.id}>
-                  {item.editionDate} · {item.title} ({item.status})
+                  {item.editionDate} · {item.title} {item.isSpecial ? `[ম্যাগাজিন: ${item.specialName || 'বিশেষ'}]` : ''} · {item.status}
                 </option>
               ))}
             </select>
           </label>
 
-          {/* Upload Dropzone */}
-          <div style={{ marginTop: 14, padding: 14, border: '2px dashed #94a3b8', borderRadius: 8, background: '#f8fafc' }}>
-            <label style={{ display: 'block', fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
-              পৃষ্ঠা আপলোড করুন (ছবি/স্ক্যান)
-            </label>
-            <input
-              type="file"
-              multiple
-              accept="image/jpeg,image/png,image/webp"
-              onChange={e => setSelectedFiles(e.target.files)}
-              style={{ width: '100%', fontSize: 12 }}
-            />
+          {editionId && (
             <button
-              type="button"
-              className="button button-primary"
-              disabled={uploading || !selectedFiles?.length}
-              onClick={uploadSelectedPages}
-              style={{ width: '100%', marginTop: 10, padding: '8px 12px', fontSize: 13 }}
+              onClick={deleteCurrentEdition}
+              style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '4px', margin: '8px 0 14px' }}
             >
-              {uploading ? 'আপলোড হচ্ছে...' : `📤 নির্বাচিত ${selectedFiles?.length || ''}টি পৃষ্ঠা আপলোড করুন`}
+              <Trash2 size={14} /> এই পুরো সংখ্যাটি মুছে ফেলুন ({date})
             </button>
-          </div>
+          )}
 
-          <div className="publish-actions" style={{ marginTop: 16 }}>
-            <button
-              className="button button-primary"
-              disabled={!pages.length || publishing}
-              onClick={() => void publish('published')}
-            >
-              প্রকাশ করুন (Live)
+          <label className="upload-dropzone">
+            একসাথে একাধিক পৃষ্ঠা আপলোড করুন
+            <input type="file" multiple accept="image/jpeg,image/png,image/webp" onChange={event => void uploadPages(event.target.files)} />
+            <small>নির্বাচিত তারিখ: <b>{date}</b>-এর জন্য পৃষ্ঠা আপলোড হবে।</small>
+          </label>
+
+          <div className="publish-actions">
+            <button className="button button-primary" disabled={!pages.length || publishing} onClick={() => void publish('published')}>
+              প্রকাশ করুন
             </button>
-            <button
-              className="button button-ghost"
-              disabled={publishing}
-              onClick={() => void publish('draft')}
-            >
-              খসড়া করুন
+            <button className="button button-ghost" disabled={publishing} onClick={() => void publish('draft')}>
+              খসড়ায় ফেরত
             </button>
           </div>
         </section>
 
-        {/* Page List with Hover ✕ Delete Button */}
+        {/* পৃষ্ঠা তালিকা */}
         <section className="admin-panel epaper-pages">
           <div className="workspace-heading">
             <div>
-              <h2>পৃষ্ঠা তালিকা ({pages.length})</h2>
-              <p>কাটিং করতে ক্লিক করুন। ভুল পেজ হলে উপরে লাল ✕ বাটনে চাপুন।</p>
+              <h2>পৃষ্ঠা তালিকা ({date})</h2>
+              <p>{pages.length}টি পৃষ্ঠা · পৃষ্ঠা নির্বাচন করে লিংক ড্র্যাগ করুন</p>
             </div>
           </div>
 
           <div className="page-list">
             {pages.map(page => (
-              <div
-                key={page.id}
-                style={{ position: 'relative' }}
-                className={`page-tile ${page.id === pageId ? 'selected' : ''}`}
-                onClick={() => switchPage(page.id)}
-              >
+              <div key={page.id} style={{ position: 'relative' }}>
                 <button
-                  type="button"
-                  onClick={e => deleteSinglePage(page.id, e)}
-                  style={{
-                    position: 'absolute',
-                    top: 4,
-                    right: 4,
-                    background: '#dc2626',
-                    color: '#fff',
-                    border: 0,
-                    borderRadius: 999,
-                    width: 22,
-                    height: 22,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    fontWeight: 'bold',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-                    zIndex: 10
+                  className={page.id === pageId ? 'page-tile selected' : 'page-tile'}
+                  onClick={() => {
+                    setPageId(page.id);
+                    setRegions(allRegions.filter(region => region.pageId === page.id));
                   }}
-                  title="এই পৃষ্ঠাটি ডিলিট করুন"
+                >
+                  <img src={page.imagePath} alt={`পৃষ্ঠা ${page.pageNumber}`} />
+                  <span>পৃষ্ঠা {page.pageNumber}</span>
+                </button>
+                <button
+                  onClick={() => deleteSinglePage(page.id)}
+                  title="এই পৃষ্ঠা মুছুন"
+                  style={{ position: 'absolute', top: '4px', right: '4px', background: 'rgba(220, 38, 38, 0.85)', color: '#fff', border: 'none', borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
                   ✕
                 </button>
-                <img src={page.imagePath} alt={`পৃষ্ঠা ${page.pageNumber}`} />
-                <span>
-                  পৃষ্ঠা {page.pageNumber}
-                  {page.specialName && (
-                    <small style={{ display: 'block', color: '#c8102e', fontWeight: 'bold' }}>
-                      ({page.specialName})
-                    </small>
-                  )}
-                </span>
               </div>
             ))}
           </div>
-
-          {selectedPage && (
-            <div style={{ marginTop: 16, padding: 14, background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8 }}>
-              <strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
-                পৃষ্ঠা {selectedPage.pageNumber}-এর সেটিংস:
-              </strong>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
-                <input
-                  type="checkbox"
-                  checked={isSpecial}
-                  onChange={e => setIsSpecial(e.target.checked)}
-                />
-                এই পৃষ্ঠাটি কি "বিশেষ সংখ্যা" (Special Edition)?
-              </label>
-
-              {isSpecial && (
-                <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
-                  <input
-                    type="text"
-                    value={specialNameInput}
-                    onChange={e => setSpecialNameInput(e.target.value)}
-                    placeholder="বিশেষ সংখ্যার নাম (যেমন: ঈদ সংখ্যা, কৌতুক, সাহিত্য)"
-                    style={{ flex: 1, padding: '6px 10px', fontSize: 13, borderRadius: 4, border: '1px solid #cbd5e1' }}
-                  />
-                  <button
-                    type="button"
-                    className="button button-primary"
-                    style={{ fontSize: 12, padding: '6px 14px' }}
-                    onClick={saveSpecialTag}
-                  >
-                    সেভ করুন
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
         </section>
 
-        {/* Visual Link Mapper */}
-        <section className="admin-panel epaper-mapper" style={{ gridColumn: '1 / -1' }}>
-          <div className="workspace-heading" style={{ flexWrap: 'wrap', gap: 12, borderBottom: '1px solid #e2e8f0', paddingBottom: 14 }}>
+        {/* ভিজ্যুয়াল লিংক ম্যাপার */}
+        <section className="admin-panel epaper-mapper">
+          <div className="workspace-heading">
             <div>
-              <h2>ভিজ্যুয়াল কাটিং ম্যাপার {selectedPage ? `— পৃষ্ঠা ${selectedPage.pageNumber}` : ''}</h2>
-              <p>
-                {activeStoryGroupId
-                  ? `🔗 পৃষ্ঠা ${linkingFromPage}-এর নির্দিষ্ট সংবাদের সাথে লিংক হচ্ছে: এখন এই পেজে বাকি কলামটি ড্র্যাগ করে কাটুন।`
-                  : 'টুল সিলেক্ট করে ড্র্যাগ করে বক্স আঁকুন। তারপর নিচে সেই বক্সের সাথে নিউজ বা ভিতরের পাতার লিংক যুক্ত করুন।'}
-              </p>
+              <h2>ভিজ্যুয়াল লিংক ম্যাপার</h2>
+              <p>শেপ নির্বাচন করে পেপারের ওপর ড্র্যাগ করুন।</p>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button
-                  type="button"
-                  className={`button ${shape === 'rect' ? 'button-primary' : 'button-ghost'}`}
-                  style={{ padding: '5px 12px', fontSize: 12 }}
-                  onClick={() => setShape('rect')}
-                >
-                  চারকোনা (Rectangle)
-                </button>
-                <button
-                  type="button"
-                  className={`button ${shape === 'l' ? 'button-primary' : 'button-ghost'}`}
-                  style={{ padding: '5px 12px', fontSize: 12 }}
-                  onClick={() => setShape('l')}
-                >
-                  L-শেপ
-                </button>
-                <button
-                  type="button"
-                  className={`button ${shape === 'polygon' ? 'button-primary' : 'button-ghost'}`}
-                  style={{ padding: '5px 12px', fontSize: 12, background: shape === 'polygon' ? '#c8102e' : undefined, color: shape === 'polygon' ? '#fff' : undefined }}
-                  onClick={() => setShape('polygon')}
-                >
-                  ✍️ বহুভুজ
-                </button>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f1f5f9', padding: '4px 10px', borderRadius: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>জুম:</span>
-                <button type="button" onClick={() => setZoom(prev => Math.max(0.8, Number((prev - 0.2).toFixed(1))))}>－</button>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{Math.round(zoom * 100)}%</span>
-                <button type="button" onClick={() => setZoom(prev => Math.min(2.5, Number((prev + 0.2).toFixed(1))))}>＋</button>
-              </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => setZoom(z => Math.max(z - 15, 60))} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}><ZoomOut size={14} /></button>
+              <button onClick={() => setZoom(z => Math.min(z + 15, 180))} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}><ZoomIn size={14} /></button>
+              <button onClick={() => setZoom(100)} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', cursor: 'pointer' }}><RotateCcw size={14} /></button>
             </div>
           </div>
 
-          {selectedPage ? (
+          {/* শেপ সিলেকশন বার */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
+            <span style={{ fontSize: '13px', fontWeight: 700, color: '#475569', marginRight: '6px' }}>শেপ টুল:</span>
+
+            <button
+              onClick={() => { setSelectedShape('rect'); setPolygonPoints([]); }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: selectedShape === 'rect' ? '2px solid #c8102e' : '1px solid #cbd5e1',
+                background: selectedShape === 'rect' ? '#fee2e2' : '#fff',
+                color: selectedShape === 'rect' ? '#991b1b' : '#334155',
+                fontWeight: 700,
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              <Square size={14} /> আয়তক্ষেত্র (Rect)
+            </button>
+
+            <button
+              onClick={() => { setSelectedShape('l'); setPolygonPoints([]); }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: selectedShape === 'l' ? '2px solid #c8102e' : '1px solid #cbd5e1',
+                background: selectedShape === 'l' ? '#fee2e2' : '#fff',
+                color: selectedShape === 'l' ? '#991b1b' : '#334155',
+                fontWeight: 700,
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              ⌐ এল-শেপ (L)
+            </button>
+
+            <button
+              onClick={() => { setSelectedShape('t'); setPolygonPoints([]); }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: selectedShape === 't' ? '2px solid #c8102e' : '1px solid #cbd5e1',
+                background: selectedShape === 't' ? '#fee2e2' : '#fff',
+                color: selectedShape === 't' ? '#991b1b' : '#334155',
+                fontWeight: 700,
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              ┬ টি-শেপ (T)
+            </button>
+
+            <button
+              onClick={() => { setSelectedShape('polygon'); setPolygonPoints([]); }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: selectedShape === 'polygon' ? '2px solid #c8102e' : '1px solid #cbd5e1',
+                background: selectedShape === 'polygon' ? '#fee2e2' : '#fff',
+                color: selectedShape === 'polygon' ? '#991b1b' : '#334155',
+                fontWeight: 700,
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              ⬡ বহুভুজ (ডট মোড)
+            </button>
+
+            {selectedShape === 'polygon' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: '#dc2626' }}>{polygonPoints.length}টি পয়েন্ট</span>
+                <button onClick={finishPolygon} style={{ padding: '5px 12px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                  শেপ সম্পন্ন করুন
+                </button>
+                <button onClick={() => setPolygonPoints([])} style={{ padding: '5px 10px', background: '#94a3b8', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}>
+                  বাতিল
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* ২ পাতার চলমান সংযোগ মোডের সক্রিয় ব্যানার */}
+          {pendingStoryToken && (
+            <div style={{ background: '#ecfdf5', border: '1.5px solid #10b981', padding: '10px 16px', borderRadius: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#065f46', fontSize: '14px', fontWeight: 700 }}>
+                <Link2 size={18} color="#059669" />
+                <span>পৃষ্ঠা {pendingFromPage}-এর খবরের বাকি অংশ লিংক মোড চালু আছে। এখন ড্র্যাগ করে পৃষ্ঠা {selected?.pageNumber}-এর অংশটি কেটে নিন।</span>
+              </div>
+              <button onClick={() => { setPendingStoryToken(null); setPendingFromPage(null); }} style={{ background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer', fontSize: '12px', fontWeight: 700 }}>
+                বাতিল করুন
+              </button>
+            </div>
+          )}
+
+          {selected ? (
             <>
-              <div style={{ width: '100%', maxHeight: '75vh', overflow: 'auto', background: '#1e293b', padding: 24, borderRadius: 10, margin: '16px 0' }}>
+              {/* ড্রয়িং ক্যানভাস */}
+              <div style={{ overflow: 'auto', maxHeight: '760px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#334155', padding: '12px', textAlign: 'center' }}>
                 <div
-                  ref={canvasRef}
-                  className="mapping-canvas"
-                  style={{ position: 'relative', width: `${Math.round(zoom * 1000)}px`, margin: '0 auto', userSelect: 'none', cursor: 'crosshair', lineHeight: 0, backgroundColor: '#fff' }}
+                  ref={canvas}
+                  style={{
+                    width: `${zoom}%`,
+                    position: 'relative',
+                    margin: '0 auto',
+                    userSelect: 'none',
+                    touchAction: 'none',
+                    cursor: 'crosshair',
+                  }}
                   onPointerDown={handlePointerDown}
                   onPointerMove={handlePointerMove}
                   onPointerUp={handlePointerUp}
                 >
-                  <img src={selectedPage.imagePath} alt={`পৃষ্ঠা ${selectedPage.pageNumber}`} style={{ width: '100%', height: 'auto', display: 'block', pointerEvents: 'none' }} />
+                  <img
+                    src={selected.imagePath}
+                    alt={`পৃষ্ঠা ${selected.pageNumber}`}
+                    draggable={false}
+                    style={{ width: '100%', height: 'auto', display: 'block', pointerEvents: 'none', userSelect: 'none' }}
+                  />
 
-                  {regions.map((reg, index) => {
-                    const isSelected = selectedRegionIndex === index
+                  {/* পূর্বের সংরক্ষিত অঞ্চলসমূহ */}
+                  {regions.map((region, index) => {
+                    let clipStyle: string | undefined = undefined;
+                    if (region.shapeType === 'l') {
+                      clipStyle = 'polygon(0 0, 38% 0, 38% 62%, 100% 62%, 100% 100%, 0 100%)';
+                    } else if (region.shapeType === 't') {
+                      clipStyle = 'polygon(0 0, 100% 0, 100% 32%, 62% 32%, 62% 100%, 38% 100%, 38% 32%, 0 32%)';
+                    } else if (region.shapeType === 'polygon' && Array.isArray(region.points) && region.points.length > 2) {
+                      clipStyle = `polygon(${region.points.map(p => `${p.x * 100}% ${p.y * 100}%`).join(', ')})`;
+                    }
+
                     return (
                       <div
-                        key={reg.id || index}
-                        onClick={e => { e.stopPropagation(); setSelectedRegionIndex(index) }}
+                        key={region.id || index}
                         style={{
                           position: 'absolute',
-                          left: `${Number(reg.x) * 100}%`,
-                          top: `${Number(reg.y) * 100}%`,
-                          width: `${Number(reg.width) * 100}%`,
-                          height: `${Number(reg.height) * 100}%`,
-                          backgroundColor: isSelected ? 'rgba(220, 38, 38, 0.45)' : 'rgba(37, 99, 235, 0.35)',
-                          border: isSelected ? '2px solid #b91c1c' : '2px solid #1d4ed8',
-                          cursor: 'pointer',
+                          left: `${percent(region.x)}%`,
+                          top: `${percent(region.y)}%`,
+                          width: `${percent(region.width)}%`,
+                          height: `${percent(region.height)}%`,
+                          border: '2px solid rgba(200, 16, 46, 0.85)',
+                          backgroundColor: 'rgba(200, 16, 46, 0.22)',
+                          clipPath: clipStyle,
+                          pointerEvents: 'none',
                           display: 'flex',
-                          alignItems: 'flex-start'
+                          alignItems: 'flex-start',
+                          justifyContent: 'flex-start',
+                          padding: '3px',
                         }}
                       >
-                        <span style={{ background: isSelected ? '#b91c1c' : '#1d4ed8', color: '#fff', fontSize: '11px', fontWeight: 'bold', padding: '2px 6px' }}>
+                        <span style={{ background: '#c8102e', color: '#fff', borderRadius: '4px', padding: '1px 5px', fontSize: '11px', fontWeight: 800 }}>
                           #{index + 1}
                         </span>
                       </div>
-                    )
+                    );
                   })}
+
+                  {/* লাইভ ড্র্যাগ বক্স */}
+                  {isDragging && dragStart && currentMouse && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: `${percent(Math.min(dragStart.x, currentMouse.x))}%`,
+                        top: `${percent(Math.min(dragStart.y, currentMouse.y))}%`,
+                        width: `${percent(Math.abs(currentMouse.x - dragStart.x))}%`,
+                        height: `${percent(Math.abs(currentMouse.y - dragStart.y))}%`,
+                        border: '2px dashed #dc2626',
+                        backgroundColor: 'rgba(239, 68, 68, 0.25)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+
+                  {/* বহুভুজ ডট ও লাইন */}
+                  {selectedShape === 'polygon' && polygonPoints.length > 0 && (
+                    <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                      <polyline
+                        points={polygonPoints.map(p => `${percent(p.x)}%,${percent(p.y)}%`).join(' ')}
+                        fill="rgba(220, 38, 38, 0.18)"
+                        stroke="#dc2626"
+                        strokeWidth="2.5"
+                        strokeDasharray="4 2"
+                      />
+                      {currentMouse && (
+                        <line
+                          x1={`${percent(polygonPoints[polygonPoints.length - 1].x)}%`}
+                          y1={`${percent(polygonPoints[polygonPoints.length - 1].y)}%`}
+                          x2={`${percent(currentMouse.x)}%`}
+                          y2={`${percent(currentMouse.y)}%`}
+                          stroke="#dc2626"
+                          strokeWidth="2"
+                        />
+                      )}
+                      {polygonPoints.map((p, i) => (
+                        <circle key={i} cx={`${percent(p.x)}%`} cy={`${percent(p.y)}%`} r="5" fill="#dc2626" stroke="#fff" strokeWidth="1.5" />
+                      ))}
+                    </svg>
+                  )}
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc', padding: '14px 18px', borderRadius: 10, marginBottom: 16 }}>
-                <div>
-                  <strong style={{ fontSize: 16 }}>পৃষ্ঠা {selectedPage.pageNumber}-এ কাটা অঞ্চল: {regions.length}টি</strong>
-                  <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>নিচে প্রতিটি অঞ্চলের সাথে সংবাদ বা ভিতরের পাতা লিংক করুন।</p>
-                </div>
-                <button className="button button-green" disabled={saving || !regions.length} onClick={saveRegions}>
-                  {saving ? 'সংরক্ষণ হচ্ছে...' : 'সব লিংক সংরক্ষণ করুন'}
+              {/* টার্গেট কন্ট্রোল */}
+              <div className="mapping-controls" style={{ marginTop: '14px' }}>
+                <label>
+                  নতুন অঞ্চলের লিংক টার্গেট:
+                  <select value={selectedTarget} onChange={e => setSelectedTarget(e.target.value)}>
+                    <option value="">-- সংবাদ নির্বাচন করুন বা ভিতরের পাতায় পাঠান --</option>
+                    {articles.map(article => (
+                      <option key={article.id} value={`article:${article.id}`}>
+                        অনলাইন সংবাদ: {article.titleBn}
+                      </option>
+                    ))}
+                    {pages.filter(p => p.id !== pageId).map(p => (
+                      <option key={p.id} value={`page:${p.pageNumber}`}>
+                        ভিতরের কলাম: পৃষ্ঠা {p.pageNumber}-এ দেখুন
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <button className="button button-green" onClick={saveRegions}>
+                  সব লিংক সংরক্ষণ করুন ({regions.length})
                 </button>
               </div>
 
-              <div className="region-list" style={{ display: 'grid', gap: 12 }}>
-                {regions.map((reg, index) => {
-                  const currentVal = reg.articleId ? `article:${reg.articleId}` : reg.targetPageNumber ? `page:${reg.targetPageNumber}` : ''
-                  const isSelected = selectedRegionIndex === index
+              {/* অঞ্চলের তালিকা ও ভিতরের পাতার অটো-লিংক */}
+              <div className="region-list">
+                {regions.map((region, index) => {
+                  const targetPageNum = region.targetPageNumber || (selectedTarget.startsWith('page:') ? Number(selectedTarget.split(':')[1]) : null);
 
                   return (
                     <div
-                      key={reg.id || index}
-                      style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '12px 16px', background: isSelected ? '#fee2e2' : '#f8fafc', border: isSelected ? '1px solid #ef4444' : '1px solid #cbd5e1', borderRadius: 8 }}
-                      onClick={() => setSelectedRegionIndex(index)}
+                      key={region.id || index}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '10px 14px',
+                        background: targetPageNum ? '#fff1f2' : '#fff',
+                        border: targetPageNum ? '1px solid #fecdd3' : '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        marginBottom: '8px',
+                      }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                        <span style={{ fontWeight: 'bold', fontSize: 15 }}>#{index + 1}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                        <span style={{ fontWeight: 800, color: '#c8102e', width: '28px' }}>#{index + 1}</span>
 
-                        <div style={{ flex: 1 }}>
-                          <select
-                            value={currentVal}
-                            onChange={e => updateRegionTarget(index, e.target.value)}
-                            style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid #cbd5e1' }}
-                          >
-                            <option value="">-- সংবাদ নির্বাচন করুন বা ভিতরের পাতায় পাঠান --</option>
-                            <optgroup label="📰 মূল সংবাদের সাথে লিংক">
-                              {articles.map(art => (
-                                <option key={art.id} value={`article:${art.id}`}>
-                                  সংবাদ: {art.titleBn}
-                                </option>
-                              ))}
-                            </optgroup>
-                            <optgroup label="📄 ভিতরের কলাম পাতা (Continuation Page)">
-                              {pages.filter(p => p.id !== pageId).map(p => (
-                                <option key={p.id} value={`page:${p.pageNumber}`}>
-                                  ভিতরের কলাম: পৃষ্ঠা {p.pageNumber}-এ দেখুন
-                                </option>
-                              ))}
-                            </optgroup>
-                          </select>
-                        </div>
-
-                        <button
-                          type="button"
-                          className="button"
-                          style={{ background: '#fee2e2', color: '#b91c1c', border: 0, padding: '7px 14px' }}
-                          onClick={e => { e.stopPropagation(); deleteRegion(index) }}
+                        <select
+                          value={region.articleId ? `article:${region.articleId}` : region.targetPageNumber ? `page:${region.targetPageNumber}` : ''}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setRegions(current =>
+                              current.map((r, itemIdx) => {
+                                if (itemIdx === index) {
+                                  return {
+                                    ...r,
+                                    articleId: val.startsWith('article:') ? Number(val.split(':')[1]) : null,
+                                    targetPageNumber: val.startsWith('page:') ? Number(val.split(':')[1]) : null,
+                                  };
+                                }
+                                return r;
+                              })
+                            );
+                          }}
+                          style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', flex: 1, maxWidth: '420px', fontSize: '13px' }}
                         >
-                          মুছুন
-                        </button>
+                          <option value="">-- সংবাদ নির্বাচন করুন বা ভিতরের পাতায় পাঠান --</option>
+                          {articles.map(art => (
+                            <option key={art.id} value={`article:${art.id}`}>
+                              অনলাইন সংবাদ: {art.titleBn}
+                            </option>
+                          ))}
+                          {pages.filter(p => p.id !== pageId).map(p => (
+                            <option key={p.id} value={`page:${p.pageNumber}`}>
+                              ভিতরের কলাম: পৃষ্ঠা {p.pageNumber}-এ দেখুন
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* ২ পাতার ধারাবাহিক খবরের জন্য অটো-সেভ বাটন */}
+                        {targetPageNum && (
+                          <button
+                            onClick={() => saveAndGoToNextPage(targetPageNum)}
+                            style={{
+                              background: '#c8102e',
+                              color: '#fff',
+                              border: 'none',
+                              padding: '6px 14px',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                            }}
+                          >
+                            💾 পৃষ্ঠা {selected.pageNumber} সেভ করে পৃষ্ঠা {targetPageNum}-এ যান
+                          </button>
+                        )}
                       </div>
 
-                      {reg.targetPageNumber && (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#e0f2fe', padding: '10px 14px', borderRadius: 6 }}>
-                          <span style={{ fontSize: 13, color: '#0369a1', fontWeight: 600 }}>
-                            বাকি অংশ <strong>পৃষ্ঠা নম্বর {reg.targetPageNumber}</strong>-এ আছে।
-                          </span>
-                          <button
-                            type="button"
-                            className="button button-primary"
-                            disabled={saving}
-                            style={{ fontSize: 12, padding: '7px 16px', fontWeight: 700 }}
-                            onClick={() => jumpToContinuationPage(index, Number(reg.targetPageNumber))}
-                          >
-                            {saving ? 'সংরক্ষণ হচ্ছে...' : `💾 পৃষ্ঠা ১ সেভ করে পৃষ্ঠা ${reg.targetPageNumber}-এ যান`}
-                          </button>
-                        </div>
-                      )}
+                      <button
+                        onClick={() => setRegions(current => current.filter((_, itemIndex) => itemIndex !== index))}
+                        style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginLeft: '12px' }}
+                      >
+                        মুছুন
+                      </button>
                     </div>
-                  )
+                  );
                 })}
               </div>
             </>
           ) : (
-            <div className="empty-state" style={{ padding: 40, textAlign: 'center' }}>
+            <div className="empty-state">
               <h3>একটি পৃষ্ঠা নির্বাচন করুন</h3>
-              <p>উপরে থাকা পৃষ্ঠা তালিকা থেকে একটি পৃষ্ঠায় ক্লিক করুন।</p>
+              <p>বাঁ দিকের পেজ থাম্বনেইল থেকে শুরু করুন।</p>
             </div>
           )}
         </section>
       </div>
 
-      {message && <p className="admin-feedback" style={{ marginTop: 18 }}>{message}</p>}
+      {message && <p className="admin-feedback">{message}</p>}
     </>
-  )
+  );
 }

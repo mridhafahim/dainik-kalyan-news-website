@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { SiteChrome } from '@/components/layout/SiteChrome';
-import { Download, ZoomIn, ZoomOut, RotateCcw, X, ExternalLink, Calendar, ChevronRight, FileText } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Download, ZoomIn, ZoomOut, RotateCcw, X, ExternalLink, FileText, BookOpen } from 'lucide-react';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
-// জলছাপের লোগো ইউআরএল (Vercel CDN + লোকাল ফলব্যাক)
+// মূল 'ক' জলছাপ
 const WATERMARK_IMAGE = 'https://hebbkx1anhila5yf.public.blob.vercel-storage.com/logofinal-1-kG9UPUnYBasa1wBddy2PBm9W7GmXAu.png';
 
 interface Region {
@@ -36,27 +36,48 @@ interface EditionItem {
   id: number;
   editionDate: string;
   title: string;
+  isSpecial?: boolean;
+  specialName?: string;
 }
 
 export default function EpaperPage() {
-  const [editionId, setEditionId] = useState<number>();
+  const [activeTab, setActiveTab] = useState<'regular' | 'special'>('regular');
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedEditionId, setSelectedEditionId] = useState<number>();
   const [currentPageIndex, setCurrentPageIndex] = useState<number>(0);
   const [zoom, setZoom] = useState<number>(100);
+  const [showCalendar, setShowCalendar] = useState<boolean>(false);
   const [activeModalRegion, setActiveModalRegion] = useState<Region | null>(null);
+  const [isFlipping, setIsFlipping] = useState<boolean>(false);
 
-  const { data, isLoading } = useSWR(`/api/epaper${editionId ? `?edition=${editionId}` : ''}`, fetcher, {
-    revalidateOnFocus: false,
-  });
+  // ক্যালেন্ডার স্টেট
+  const [calYear, setCalYear] = useState<number>(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState<number>(new Date().getMonth());
 
-  const editions: EditionItem[] = data?.editions || [];
+  const queryParam = selectedEditionId ? `?edition=${selectedEditionId}` : selectedDate ? `?date=${selectedDate}` : '';
+  const { data, isLoading } = useSWR(`/api/epaper${queryParam}`, fetcher, { revalidateOnFocus: false });
+
+  const regularEditions: EditionItem[] = data?.regularEditions || [];
+  const specialEditions: EditionItem[] = data?.specialEditions || [];
+  const archiveDates: string[] = data?.archiveDates || [];
   const current = data?.current;
   const pages: PageItem[] = current?.pages || [];
   const allRegions: Region[] = current?.allRegions || [];
 
-  const selectedEdition = useMemo(() => {
-    if (editionId) return editions.find(e => e.id === editionId);
-    return editions[0] || null;
-  }, [editionId, editions]);
+  const currentEdition: EditionItem | null = current?.edition || null;
+
+  useEffect(() => {
+    if (currentEdition) {
+      if (currentEdition.isSpecial) {
+        setActiveTab('special');
+      } else {
+        setActiveTab('regular');
+      }
+      if (!selectedDate) {
+        setSelectedDate(currentEdition.editionDate);
+      }
+    }
+  }, [currentEdition]);
 
   const currentPage = pages[currentPageIndex] || null;
   const currentPageRegions = useMemo(() => {
@@ -64,23 +85,87 @@ export default function EpaperPage() {
     return allRegions.filter(r => r.pageId === currentPage.id);
   }, [allRegions, currentPage]);
 
-  // কন্টিনিউয়েশন সংবাদ পেয়ারিং (যদি সংবাদটির বাকি অংশ অন্য পৃষ্ঠায় থাকে)
+  const changePageWithFlip = (newIndex: number) => {
+    if (newIndex === currentPageIndex || newIndex < 0 || newIndex >= pages.length) return;
+    setIsFlipping(true);
+    setTimeout(() => {
+      setCurrentPageIndex(newIndex);
+      setIsFlipping(false);
+    }, 240);
+  };
+
+  // ২ পাতার ধারাবাহিক খবরের জোড়া খোঁজার স্মার্ট লজিক
   const pairedContinuationRegion = useMemo(() => {
     if (!activeModalRegion) return null;
     const url = activeModalRegion.targetUrl || '';
+
+    // ১. স্টোরি টোকেন দিয়ে মিল খোঁজা
     if (url.includes('group:story_')) {
-      const storyToken = url.substring(url.indexOf('group:story_'));
-      return allRegions.find(r => r.id !== activeModalRegion.id && r.targetUrl && r.targetUrl.includes(storyToken)) || null;
+      const token = url.substring(url.indexOf('group:story_'));
+      const found = allRegions.find(r => r.id !== activeModalRegion.id && r.targetUrl && r.targetUrl.includes(token));
+      if (found) return found;
+    }
+
+    // ২. পেজ নম্বর দিয়ে মিল খোঁজা (যদি টোকেন মিস হয়)
+    if (activeModalRegion.targetPageNumber) {
+      const targetP = pages.find(p => p.pageNumber === activeModalRegion.targetPageNumber);
+      if (targetP) {
+        const found = allRegions.find(r => r.pageId === targetP.id && (r.targetPageNumber === currentPage?.pageNumber || r.targetPageNumber === 1));
+        if (found) return found;
+      }
     }
     return null;
-  }, [activeModalRegion, allRegions]);
+  }, [activeModalRegion, allRegions, pages, currentPage]);
 
-  const continuationPage = useMemo(() => {
+  // কোন অংশটি আগে (পৃষ্ঠা ১) এবং কোনটি পরে (পৃষ্ঠা ২) তা নির্ধারণ
+  const part1Region = useMemo(() => {
+    if (!activeModalRegion) return null;
+    if (!pairedContinuationRegion) return activeModalRegion;
+    const pageA = pages.find(p => p.id === activeModalRegion.pageId)?.pageNumber || 1;
+    const pageB = pages.find(p => p.id === pairedContinuationRegion.pageId)?.pageNumber || 2;
+    return pageA <= pageB ? activeModalRegion : pairedContinuationRegion;
+  }, [activeModalRegion, pairedContinuationRegion, pages]);
+
+  const part2Region = useMemo(() => {
     if (!pairedContinuationRegion) return null;
-    return pages.find(p => p.id === pairedContinuationRegion.pageId) || null;
-  }, [pairedContinuationRegion, pages]);
+    return part1Region?.id === activeModalRegion?.id ? pairedContinuationRegion : activeModalRegion;
+  }, [activeModalRegion, pairedContinuationRegion, part1Region]);
 
-  // ক্লায়েন্ট-সাইড জেপিজি ডাউনলোড (পুরো পেজ + জলছাপ)
+  const part1Page = useMemo(() => {
+    if (!part1Region) return null;
+    return pages.find(p => p.id === part1Region.pageId) || null;
+  }, [part1Region, pages]);
+
+  const part2Page = useMemo(() => {
+    if (!part2Region) return null;
+    return pages.find(p => p.id === part2Region.pageId) || null;
+  }, [part2Region, pages]);
+
+  // ক্যালেন্ডার গ্রিড
+  const calendarDays = useMemo(() => {
+    const firstDay = new Date(calYear, calMonth, 1).getDay();
+    const totalDays = new Date(calYear, calMonth + 1, 0).getDate();
+    const days: (number | null)[] = [];
+    const offset = (firstDay + 1) % 7;
+    for (let i = 0; i < offset; i++) days.push(null);
+    for (let d = 1; d <= totalDays; d++) days.push(d);
+    return days;
+  }, [calYear, calMonth]);
+
+  const monthNamesBn = ['জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন', 'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
+  const weekDaysBn = ['শনি', 'রবি', 'সোম', 'মঙ্গল', 'বুধ', 'বৃহঃ', 'শুক্র'];
+
+  const selectDateFromCalendar = (day: number) => {
+    const formattedMonth = String(calMonth + 1).padStart(2, '0');
+    const formattedDay = String(day).padStart(2, '0');
+    const fullDate = `${calYear}-${formattedMonth}-${formattedDay}`;
+    setSelectedDate(fullDate);
+    setSelectedEditionId(undefined);
+    setCurrentPageIndex(0);
+    setShowCalendar(false);
+  };
+
+  // জলছাপসহ পেজ ডাউনলোড
   const downloadPageWithWatermark = async () => {
     if (!currentPage) return;
     const canvas = document.createElement('canvas');
@@ -97,7 +182,6 @@ export default function EpaperPage() {
 
     ctx.drawImage(img, 0, 0);
 
-    // পেজের মাঝখানে জলছাপ আঁকা
     const wm = new Image();
     wm.crossOrigin = 'anonymous';
     wm.src = WATERMARK_IMAGE;
@@ -111,12 +195,12 @@ export default function EpaperPage() {
     ctx.restore();
 
     const link = document.createElement('a');
-    link.download = `Dainik-Kalyan-${selectedEdition?.editionDate || 'Epaper'}-Page-${currentPage.pageNumber}.jpg`;
+    link.download = `Dainik-Kalyan-${currentEdition?.editionDate || 'Epaper'}-Page-${currentPage.pageNumber}.jpg`;
     link.href = canvas.toDataURL('image/jpeg', 0.92);
     link.click();
   };
 
-  // নির্দিষ্ট কাটিং ডাউনলোড
+  // কাটিং ডাউনলোড
   const downloadCutout = (region: Region, pageImg: string, partName: string) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -137,7 +221,6 @@ export default function EpaperPage() {
 
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
 
-      // জলছাপ যোগ
       const wm = new Image();
       wm.crossOrigin = 'anonymous';
       wm.src = WATERMARK_IMAGE;
@@ -159,63 +242,271 @@ export default function EpaperPage() {
 
   return (
     <SiteChrome>
-      <main className="container main" style={{ maxWidth: '1380px', margin: '0 auto', padding: '16px' }}>
-        {/* টুলবার */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: '#fff', padding: '12px 20px', borderRadius: '12px', border: '1px solid #e5e7eb', marginBottom: '20px', gap: '14px', boxShadow: '0 2px 6px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <Calendar size={18} color="#c8102e" />
-            <select
-              value={selectedEdition?.id || ''}
-              onChange={e => {
-                setEditionId(Number(e.target.value));
-                setCurrentPageIndex(0);
+      <main style={{ maxWidth: '1400px', margin: '0 auto', padding: '16px' }}>
+        
+        {/* কালবেলা স্টাইল হেডার */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: '#fff', padding: '14px 20px', borderRadius: '12px', border: '1px solid #e5e7eb', marginBottom: '16px', gap: '14px', boxShadow: '0 2px 5px rgba(0,0,0,0.03)' }}>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f3f4f6', padding: '4px', borderRadius: '8px' }}>
+            <button
+              onClick={() => {
+                setActiveTab('regular');
+                if (regularEditions[0]) {
+                  setSelectedEditionId(regularEditions[0].id);
+                  setSelectedDate(regularEditions[0].editionDate);
+                  setCurrentPageIndex(0);
+                }
               }}
-              style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '15px', fontWeight: 600, color: '#111827', background: '#f9fafb' }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: 'none',
+                background: activeTab === 'regular' ? '#c8102e' : 'transparent',
+                color: activeTab === 'regular' ? '#fff' : '#374151',
+                fontWeight: 700,
+                fontSize: '14px',
+                cursor: 'pointer',
+              }}
             >
-              {editions.map(item => (
-                <option key={item.id} value={item.id}>
-                  {item.editionDate} · {item.title}
-                </option>
+              <FileText size={16} /> নিয়মিত পত্রিকা
+            </button>
+
+            <button
+              onClick={() => {
+                setActiveTab('special');
+                if (specialEditions[0]) {
+                  setSelectedEditionId(specialEditions[0].id);
+                  setSelectedDate(specialEditions[0].editionDate);
+                  setCurrentPageIndex(0);
+                }
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: 'none',
+                background: activeTab === 'special' ? '#c8102e' : 'transparent',
+                color: activeTab === 'special' ? '#fff' : '#374151',
+                fontWeight: 700,
+                fontSize: '14px',
+                cursor: 'pointer',
+              }}
+            >
+              <BookOpen size={16} /> বিশেষ সংখ্যা / ম্যাগাজিন
+              {specialEditions.length > 0 && (
+                <span style={{ background: activeTab === 'special' ? '#fff' : '#c8102e', color: activeTab === 'special' ? '#c8102e' : '#fff', padding: '1px 6px', borderRadius: '10px', fontSize: '11px', fontWeight: 800 }}>
+                  {specialEditions.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', position: 'relative' }}>
+            <button
+              onClick={() => {
+                const target = activeTab === 'special' ? specialEditions[0] : regularEditions[0];
+                if (target) {
+                  setSelectedEditionId(target.id);
+                  setSelectedDate(target.editionDate);
+                  setCurrentPageIndex(0);
+                }
+              }}
+              style={{ padding: '8px 14px', borderRadius: '6px', border: '1px solid #d1d5db', background: '#f9fafb', fontSize: '13px', fontWeight: 700, color: '#1f2937', cursor: 'pointer' }}
+            >
+              আজকের সংখ্যা ({currentEdition?.editionDate || 'সর্বশেষ'})
+            </button>
+
+            <button
+              onClick={() => setShowCalendar(!showCalendar)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '6px', background: '#c8102e', color: '#fff', border: 'none', fontSize: '13px', fontWeight: 700, cursor: 'pointer', boxShadow: '0 2px 4px rgba(200,16,46,0.2)' }}
+            >
+              <Calendar size={16} /> আর্কাইভ ক্যালেন্ডার
+            </button>
+
+            {/* কালবেলা ক্যালেন্ডার পপআপ */}
+            {showCalendar && (
+              <div style={{ position: 'absolute', top: '115%', right: 0, zIndex: 1000, width: '310px', background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb', boxShadow: '0 10px 25px rgba(0,0,0,0.15)', padding: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                  <button onClick={() => { if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1); } else { setCalMonth(m => m - 1); } }} style={{ border: 'none', background: '#f3f4f6', padding: '5px', borderRadius: '4px', cursor: 'pointer' }}><ChevronLeft size={16} /></button>
+                  <span style={{ fontSize: '15px', fontWeight: 700, color: '#111827' }}>{monthNamesBn[calMonth]} {calYear}</span>
+                  <button onClick={() => { if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1); } else { setCalMonth(m => m + 1); } }} style={{ border: 'none', background: '#f3f4f6', padding: '5px', borderRadius: '4px', cursor: 'pointer' }}><ChevronRight size={16} /></button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', textAlign: 'center', fontSize: '12px', fontWeight: 700, color: '#6b7280', marginBottom: '6px' }}>
+                  {weekDaysBn.map((day, i) => (
+                    <span key={i} style={{ color: i === 6 ? '#c8102e' : '#6b7280' }}>{day}</span>
+                  ))}
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px', textAlign: 'center' }}>
+                  {calendarDays.map((d, idx) => {
+                    if (d === null) return <div key={idx} />;
+                    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                    const hasEdition = archiveDates.includes(dateStr);
+                    const isSelected = selectedDate === dateStr;
+
+                    return (
+                      <button
+                        key={idx}
+                        disabled={!hasEdition}
+                        onClick={() => selectDateFromCalendar(d)}
+                        style={{
+                          height: '34px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '6px',
+                          border: isSelected ? '1.5px solid #c8102e' : 'none',
+                          background: isSelected ? '#c8102e' : hasEdition ? '#fee2e2' : 'transparent',
+                          color: isSelected ? '#fff' : hasEdition ? '#991b1b' : '#d1d5db',
+                          fontWeight: hasEdition ? 700 : 400,
+                          fontSize: '13px',
+                          cursor: hasEdition ? 'pointer' : 'default',
+                        }}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ম্যাগাজিন শেল্ফ */}
+        {activeTab === 'special' && specialEditions.length > 0 && (
+          <div style={{ background: '#fff', padding: '16px 20px', borderRadius: '12px', border: '1px solid #fecdd3', marginBottom: '18px', boxShadow: '0 2px 6px rgba(0,0,0,0.02)' }}>
+            <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#9f1239', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <BookOpen size={18} /> প্রকাশিত বিশেষ সংখ্যা ও ম্যাগাজিনসমূহ
+            </h3>
+
+            <div style={{ display: 'flex', gap: '14px', overflowX: 'auto', paddingBottom: '6px' }}>
+              {specialEditions.map(item => (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    setSelectedEditionId(item.id);
+                    setSelectedDate(item.editionDate);
+                    setCurrentPageIndex(0);
+                  }}
+                  style={{
+                    flex: '0 0 170px',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: currentEdition?.id === item.id ? '2px solid #c8102e' : '1px solid #e5e7eb',
+                    background: currentEdition?.id === item.id ? '#fff1f2' : '#f9fafb',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                  }}
+                >
+                  <div style={{ height: '70px', background: '#ffe4e6', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '8px', color: '#e11d48' }}>
+                    <BookOpen size={28} />
+                  </div>
+                  <strong style={{ fontSize: '13px', color: '#111827', display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {item.specialName || item.title}
+                  </strong>
+                  <small style={{ color: '#6b7280', fontSize: '11px' }}>{item.editionDate}</small>
+                </div>
               ))}
-            </select>
+            </div>
+          </div>
+        )}
+
+        {/* পেজ কন্ট্রোল বার */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', background: '#fff', padding: '10px 18px', borderRadius: '10px', border: '1px solid #e5e7eb', marginBottom: '18px', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto', paddingBottom: '2px' }}>
+            <button
+              onClick={() => changePageWithFlip(Math.max(currentPageIndex - 1, 0))}
+              disabled={currentPageIndex === 0}
+              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', opacity: currentPageIndex === 0 ? 0.4 : 1 }}
+              title="আগের পৃষ্ঠা"
+            >
+              <ChevronLeft size={16} />
+            </button>
+
+            {pages.map((p, idx) => (
+              <button
+                key={p.id}
+                onClick={() => changePageWithFlip(idx)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '6px',
+                  border: idx === currentPageIndex ? 'none' : '1px solid #e5e7eb',
+                  background: idx === currentPageIndex ? '#c8102e' : '#f9fafb',
+                  color: idx === currentPageIndex ? '#fff' : '#374151',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  minWidth: '40px',
+                }}
+              >
+                পৃষ্ঠা {p.pageNumber}
+              </button>
+            ))}
+
+            <button
+              onClick={() => changePageWithFlip(Math.min(currentPageIndex + 1, pages.length - 1))}
+              disabled={currentPageIndex === pages.length - 1}
+              style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #d1d5db', background: '#fff', cursor: 'pointer', opacity: currentPageIndex === pages.length - 1 ? 0.4 : 1 }}
+              title="পরের পৃষ্ঠা"
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button onClick={() => setZoom(z => Math.max(z - 15, 60))} style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', cursor: 'pointer' }} title="জুম আউট"><ZoomOut size={16} /></button>
-            <span style={{ fontSize: '14px', fontWeight: 600, width: '46px', textAlign: 'center' }}>{zoom}%</span>
-            <button onClick={() => setZoom(z => Math.min(z + 15, 180))} style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', cursor: 'pointer' }} title="জুম ইন"><ZoomIn size={16} /></button>
-            <button onClick={() => setZoom(100)} style={{ padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', cursor: 'pointer' }} title="রিসেট"><RotateCcw size={16} /></button>
-          </div>
-
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={downloadPageWithWatermark} style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#c8102e', color: '#fff', border: 'none', padding: '9px 16px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', fontSize: '14px' }}>
-              <Download size={16} /> পৃষ্ঠা ডাউনলোড (JPG)
+            <button onClick={() => setZoom(z => Math.max(z - 15, 60))} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', cursor: 'pointer' }} title="জুম আউট"><ZoomOut size={15} /></button>
+            <span style={{ fontSize: '13px', fontWeight: 700, width: '42px', textAlign: 'center' }}>{zoom}%</span>
+            <button onClick={() => setZoom(z => Math.min(z + 15, 180))} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', cursor: 'pointer' }} title="জুম ইন"><ZoomIn size={15} /></button>
+            <button onClick={() => setZoom(100)} style={{ padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', cursor: 'pointer' }} title="রিসেট"><RotateCcw size={15} /></button>
+            <button onClick={downloadPageWithWatermark} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#111827', color: '#fff', border: 'none', padding: '7px 14px', borderRadius: '6px', fontWeight: 600, cursor: 'pointer', fontSize: '13px', marginLeft: '6px' }}>
+              <Download size={15} /> পেজ ডাউনলোড
             </button>
           </div>
         </div>
 
-        {/* রিডার এরিয়া */}
+        {/* মূল পেপার ভিউয়ার */}
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: '100px 0', color: '#6b7280', fontSize: '16px' }}>
-            দৈনিক কল্যাণ ই-পেপার লোড হচ্ছে...
+            দৈনিক কল্যাণ {activeTab === 'special' ? 'ম্যাগাজিন' : 'ই-পেপার'} লোড হচ্ছে...
           </div>
         ) : !currentPage ? (
           <div style={{ textAlign: 'center', padding: '80px 0', background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
             <FileText size={48} color="#9ca3af" style={{ margin: '0 auto 12px' }} />
-            <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#374151' }}>কোনো প্রকাশিত ই-পেপার পাওয়া যায়নি</h2>
-            <p style={{ color: '#6b7280', marginTop: '6px' }}>অনুগ্রহ করে পরে আবার চেষ্টা করুন।</p>
+            <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#374151' }}>
+              {selectedDate ? `${selectedDate} তারিখে কোনো ই-পেপার পাওয়া যায়নি` : 'কোনো ই-পেপার পাওয়া যায়নি'}
+            </h2>
+            <p style={{ color: '#6b7280', marginTop: '6px' }}>অনুগ্রহ করে আর্কাইভ ক্যালেন্ডার থেকে অন্য একটি তারিখ নির্বাচন করুন।</p>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
-            {/* মূল ব্রডশিট পেজ ক্যানভাস */}
-            <div style={{ width: `${zoom}%`, maxWidth: '100%', transition: 'width 0.2s ease', position: 'relative', background: '#fff', boxShadow: '0 8px 30px rgba(0,0,0,0.12)', borderRadius: '4px', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div
+              style={{
+                width: `${zoom}%`,
+                maxWidth: '100%',
+                transition: 'all 0.24s cubic-bezier(0.4, 0, 0.2, 1)',
+                transform: isFlipping ? 'scale(0.97) rotateY(8deg)' : 'none',
+                opacity: isFlipping ? 0.6 : 1,
+                position: 'relative',
+                background: '#fff',
+                boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+                borderRadius: '4px',
+                overflow: 'hidden',
+              }}
+            >
               <img
                 src={currentPage.imagePath}
                 alt={`পৃষ্ঠা ${currentPage.pageNumber}`}
                 style={{ width: '100%', height: 'auto', display: 'block' }}
               />
 
-              {/* ক্লিকযোগ্য হটস্পট বা রিজিয়নসমূহ */}
+              {/* ক্লিকযোগ্য হটস্পটসমূহ */}
               {currentPageRegions.map(region => (
                 <div
                   key={region.id}
@@ -239,59 +530,37 @@ export default function EpaperPage() {
                     e.currentTarget.style.backgroundColor = 'rgba(200, 16, 46, 0.04)';
                     e.currentTarget.style.borderColor = 'rgba(200, 16, 46, 0.45)';
                   }}
-                  title="সংবাদটি বড় করে পড়তে ক্লিক করুন"
+                  title="সংবাদটি সামনে বড় করে পড়তে ক্লিক করুন"
                 />
-              ))}
-            </div>
-
-            {/* থাম্বনেইল তালিকা */}
-            <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', padding: '14px', width: '100%', justifyContent: 'center', background: '#fff', borderRadius: '12px', border: '1px solid #e5e7eb' }}>
-              {pages.map((p, idx) => (
-                <button
-                  key={p.id}
-                  onClick={() => setCurrentPageIndex(idx)}
-                  style={{
-                    border: idx === currentPageIndex ? '2.5px solid #c8102e' : '1px solid #d1d5db',
-                    padding: '3px',
-                    borderRadius: '8px',
-                    background: '#fff',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <img src={p.imagePath} alt={`Page ${p.pageNumber}`} style={{ width: '56px', height: '76px', objectFit: 'cover', borderRadius: '4px' }} />
-                  <span style={{ fontSize: '12px', fontWeight: 600, color: idx === currentPageIndex ? '#c8102e' : '#4b5563' }}>পৃষ্ঠা {p.pageNumber}</span>
-                </button>
               ))}
             </div>
           </div>
         )}
 
-        {/* কাটিং মোডাল (জলছাপ ও পাশাপাশি ২ পাতার সংবাদ প্রদর্শন) */}
-        {activeModalRegion && currentPage && (
+        {/* সামনে ওপেন হওয়া কাটিং মোডাল (২ পাতার খবর সবসময় একসাথে পাশাপাশি প্রদর্শন) */}
+        {activeModalRegion && (
           <div style={{ position: 'fixed', inset: 0, zIndex: 9999, backgroundColor: 'rgba(0, 0, 0, 0.78)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onClick={() => setActiveModalRegion(null)}>
-            <div style={{ background: '#fff', borderRadius: '16px', maxWidth: pairedContinuationRegion ? '1100px' : '650px', width: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '24px', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ background: '#fff', borderRadius: '14px', maxWidth: part2Region ? '1100px' : '650px', width: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '24px', position: 'relative', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }} onClick={e => e.stopPropagation()}>
               
               {/* মোডাল হেডার */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #e5e7eb', paddingBottom: '14px', marginBottom: '18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <img src={WATERMARK_IMAGE} alt="ক" style={{ height: '32px', width: 'auto' }} />
                   <div>
-                    <h3 style={{ fontSize: '18px', fontWeight: 700, color: '#111827', margin: 0 }}>দৈনিক কল্যাণ কাটিং ভিউ</h3>
+                    <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#111827', margin: 0 }}>
+                      দৈনিক কল্যাণ কাটিং ভিউ
+                    </h3>
                     <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>
-                      {selectedEdition?.editionDate} · পৃষ্ঠা {currentPage.pageNumber}
-                      {pairedContinuationRegion && continuationPage ? ` ও পৃষ্ঠা ${continuationPage.pageNumber}` : ''}
+                      {currentEdition?.editionDate} · পৃষ্ঠা {part1Page?.pageNumber || 1}
+                      {part2Region && part2Page ? ` ও পৃষ্ঠা ${part2Page.pageNumber} (ধারাবাহিক সংবাদ)` : ''}
                     </p>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {activeModalRegion.articleId && (
+                  {(activeModalRegion.articleId || part1Region?.articleId) && (
                     <Link
-                      href={`/news/${activeModalRegion.articleId}`}
+                      href={`/news/${activeModalRegion.articleId || part1Region?.articleId}`}
                       target="_blank"
                       style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 12px', background: '#f3f4f6', color: '#1f2937', borderRadius: '6px', fontSize: '13px', fontWeight: 600, textDecoration: 'none' }}
                     >
@@ -302,66 +571,68 @@ export default function EpaperPage() {
                 </div>
               </div>
 
-              {/* কাটিং কন্টেইনার (একক অথবা পাশাপাশি ডাবল) */}
-              <div style={{ display: 'grid', gridTemplateColumns: pairedContinuationRegion ? '1fr 1fr' : '1fr', gap: '20px' }}>
+              {/* কাটিং কন্টেইনার (একক সংবাদ হলে সিঙ্গেল, ২ পাতার হলে পাশাপাশি দুটি পার্ট) */}
+              <div style={{ display: 'grid', gridTemplateColumns: part2Region ? '1fr 1fr' : '1fr', gap: '20px' }}>
                 
-                {/* অংশ ১: বর্তমান পাতার কাটিং */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 700, color: '#c8102e', display: 'flex', justifyContent: 'space-between' }}>
-                    <span>পৃষ্ঠা {currentPage.pageNumber}-এর অংশ</span>
-                    <button onClick={() => downloadCutout(activeModalRegion, currentPage.imagePath, `Page-${currentPage.pageNumber}-Clip`)} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>📥 কাটিং সেভ</button>
-                  </div>
-
-                  <div style={{ position: 'relative', overflow: 'hidden', width: '100%', aspectRatio: `${Number(activeModalRegion.width)} / ${Number(activeModalRegion.height)}`, borderRadius: '8px', border: '1px solid #e5e7eb', background: '#fafafa' }}>
-                    <img
-                      src={currentPage.imagePath}
-                      alt="News Cutout"
-                      style={{
-                        position: 'absolute',
-                        left: `-${(Number(activeModalRegion.x) / Number(activeModalRegion.width)) * 100}%`,
-                        top: `-${(Number(activeModalRegion.y) / Number(activeModalRegion.height)) * 100}%`,
-                        width: `${(1 / Number(activeModalRegion.width)) * 100}%`,
-                        height: `${(1 / Number(activeModalRegion.height)) * 100}%`,
-                        maxWidth: 'none',
-                        display: 'block',
-                      }}
-                    />
-
-                    {/* স্পষ্ট 'ক' জলছাপ ওভারলে */}
-                    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }}>
-                      <img
-                        src={WATERMARK_IMAGE}
-                        alt="দৈনিক কল্যাণ জলছাপ"
-                        style={{ width: '40%', opacity: 0.28, filter: 'drop-shadow(0 0 1px rgba(0,0,0,0.25))' }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* অংশ ২: যদি ভিতরের পাতায় বাকি অংশ থাকে */}
-                {pairedContinuationRegion && continuationPage && (
+                {/* অংশ ১: পৃষ্ঠা ১ বা প্রথম অংশের কাটিং */}
+                {part1Region && part1Page && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: '#c8102e', display: 'flex', justifyContent: 'space-between' }}>
-                      <span>পরের অংশ (পৃষ্ঠা {continuationPage.pageNumber})</span>
-                      <button onClick={() => downloadCutout(pairedContinuationRegion, continuationPage.imagePath, `Page-${continuationPage.pageNumber}-Continuation`)} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>📥 কাটিং সেভ</button>
+                      <span>প্রথম অংশ (পৃষ্ঠা {part1Page.pageNumber})</span>
+                      <button onClick={() => downloadCutout(part1Region, part1Page.imagePath, `Page-${part1Page.pageNumber}-Part-1`)} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>📥 কাটিং সেভ</button>
                     </div>
 
-                    <div style={{ position: 'relative', overflow: 'hidden', width: '100%', aspectRatio: `${Number(pairedContinuationRegion.width)} / ${Number(pairedContinuationRegion.height)}`, borderRadius: '8px', border: '1px solid #e5e7eb', background: '#fafafa' }}>
+                    <div style={{ position: 'relative', overflow: 'hidden', width: '100%', aspectRatio: `${Number(part1Region.width)} / ${Number(part1Region.height)}`, borderRadius: '8px', border: '1px solid #e5e7eb', background: '#fafafa' }}>
                       <img
-                        src={continuationPage.imagePath}
-                        alt="Continuation Cutout"
+                        src={part1Page.imagePath}
+                        alt="News Cutout Part 1"
                         style={{
                           position: 'absolute',
-                          left: `-${(Number(pairedContinuationRegion.x) / Number(pairedContinuationRegion.width)) * 100}%`,
-                          top: `-${(Number(pairedContinuationRegion.y) / Number(pairedContinuationRegion.height)) * 100}%`,
-                          width: `${(1 / Number(pairedContinuationRegion.width)) * 100}%`,
-                          height: `${(1 / Number(pairedContinuationRegion.height)) * 100}%`,
+                          left: `-${(Number(part1Region.x) / Number(part1Region.width)) * 100}%`,
+                          top: `-${(Number(part1Region.y) / Number(part1Region.height)) * 100}%`,
+                          width: `${(1 / Number(part1Region.width)) * 100}%`,
+                          height: `${(1 / Number(part1Region.height)) * 100}%`,
                           maxWidth: 'none',
                           display: 'block',
                         }}
                       />
 
-                      {/* স্পষ্ট 'ক' জলছাপ ওভারলে */}
+                      {/* 'ক' জলছাপ */}
+                      <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }}>
+                        <img
+                          src={WATERMARK_IMAGE}
+                          alt="দৈনিক কল্যাণ জলছাপ"
+                          style={{ width: '40%', opacity: 0.28, filter: 'drop-shadow(0 0 1px rgba(0,0,0,0.25))' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* অংশ ২: পৃষ্ঠা ২ বা চলমান অংশের কাটিং */}
+                {part2Region && part2Page && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#c8102e', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>চলমান অংশ (পৃষ্ঠা {part2Page.pageNumber})</span>
+                      <button onClick={() => downloadCutout(part2Region, part2Page.imagePath, `Page-${part2Page.pageNumber}-Part-2`)} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>📥 কাটিং সেভ</button>
+                    </div>
+
+                    <div style={{ position: 'relative', overflow: 'hidden', width: '100%', aspectRatio: `${Number(part2Region.width)} / ${Number(part2Region.height)}`, borderRadius: '8px', border: '1px solid #e5e7eb', background: '#fafafa' }}>
+                      <img
+                        src={part2Page.imagePath}
+                        alt="News Cutout Part 2"
+                        style={{
+                          position: 'absolute',
+                          left: `-${(Number(part2Region.x) / Number(part2Region.width)) * 100}%`,
+                          top: `-${(Number(part2Region.y) / Number(part2Region.height)) * 100}%`,
+                          width: `${(1 / Number(part2Region.width)) * 100}%`,
+                          height: `${(1 / Number(part2Region.height)) * 100}%`,
+                          maxWidth: 'none',
+                          display: 'block',
+                        }}
+                      />
+
+                      {/* 'ক' জলছাপ */}
                       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20 }}>
                         <img
                           src={WATERMARK_IMAGE}
