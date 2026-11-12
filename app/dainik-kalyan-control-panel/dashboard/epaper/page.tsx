@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type React from 'react';
 import { PageTitle } from '@/components/admin/AdminUi';
-import { BookOpen, Calendar, Edit3, Trash2, ZoomIn, ZoomOut, RotateCcw, Square, Check, X, Link2 } from 'lucide-react';
+import { Edit3, Trash2, ZoomIn, ZoomOut, RotateCcw, Square, Link2 } from 'lucide-react';
 
 type Edition = { id: number; editionDate: string; title: string; status: string; isSpecial?: boolean; specialName?: string };
 type Page = { id: number; pageNumber: number; imagePath: string; width: number; height: number };
@@ -20,12 +20,12 @@ type Region = {
   articleId?: number | null;
   targetPageNumber?: number | null;
   targetUrl?: string | null;
+  plainText?: string | null;
 };
 type Article = { id: number; titleBn: string };
 
 const percent = (value: number | string) => Number(value) * 100;
 
-// আজকের স্থানীয় তারিখ ফরম্যাট (GMT+6 সেফ)
 const getTodayLocal = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -40,14 +40,12 @@ export default function EpaperAdmin() {
   const [regions, setRegions] = useState<Region[]>([]);
   const [allRegions, setAllRegions] = useState<(Region & { pageId: number })[]>([]);
 
-  // ফর্ম ও তারিখ স্টেট (ডিফল্ট আজকের তারিখ)
   const [date, setDate] = useState<string>(getTodayLocal());
   const [title, setTitle] = useState('দৈনিক কল্যাণ');
   const [isSpecial, setIsSpecial] = useState(false);
   const [specialName, setSpecialName] = useState('');
   const [isEditingEdition, setIsEditingEdition] = useState(false);
 
-  // ২ পাতার ধারাবাহিক খবরের চলমান সেশন টোকেন
   const [pendingStoryToken, setPendingStoryToken] = useState<string | null>(null);
   const [pendingFromPage, setPendingFromPage] = useState<number | null>(null);
 
@@ -55,7 +53,6 @@ export default function EpaperAdmin() {
   const [publishing, setPublishing] = useState(false);
   const [zoom, setZoom] = useState(100);
 
-  // শেপ ও ড্রয়িং স্টেট
   const [selectedShape, setSelectedShape] = useState<Shape>('rect');
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
@@ -109,7 +106,6 @@ export default function EpaperAdmin() {
     void load();
   }, [editionId]);
 
-  // নতুন তারিখের জন্য সম্পূর্ণ নতুন সংখ্যা তৈরি
   async function createNewEdition() {
     if (!date) {
       setMessage('অনুগ্রহ করে একটি সঠিক তারিখ দিন।');
@@ -138,7 +134,6 @@ export default function EpaperAdmin() {
     }
   }
 
-  // নির্বাচিত বর্তমান সংস্করণের তারিখ বা শিরোনাম আপডেট
   async function updateEdition() {
     if (!editionId) return;
     try {
@@ -158,7 +153,6 @@ export default function EpaperAdmin() {
     }
   }
 
-  // পুরো সংস্করণ মুছে ফেলা
   async function deleteCurrentEdition() {
     if (!editionId || !confirm('আপনি কি নিশ্চিত এই পুরো সংস্করণ এবং এর সকল পৃষ্ঠা মুছে ফেলতে চান?')) return;
     try {
@@ -175,7 +169,6 @@ export default function EpaperAdmin() {
     }
   }
 
-  // একক পৃষ্ঠা ডিলিট
   async function deleteSinglePage(pId: number) {
     if (!confirm('এই পৃষ্ঠাটি মুছে ফেলতে চান?')) return;
     try {
@@ -190,7 +183,6 @@ export default function EpaperAdmin() {
     }
   }
 
-  // পৃষ্ঠা আপলোড
   async function uploadPages(files: FileList | null) {
     if (!editionId) return setMessage('আগে একটি তারিখ নির্বাচন করে নতুন সংখ্যা তৈরি বা নির্বাচন করুন');
     if (!files?.length) return;
@@ -233,7 +225,6 @@ export default function EpaperAdmin() {
     void load(editionId);
   }
 
-  // ড্রয়িং কোঅর্ডিনেট
   function getCoordinates(event: React.PointerEvent) {
     const rect = canvas.current?.getBoundingClientRect();
     if (!rect) return null;
@@ -278,7 +269,6 @@ export default function EpaperAdmin() {
         clipPoints = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 0.32 }, { x: 0.62, y: 0.32 }, { x: 0.62, y: 1 }, { x: 0.38, y: 1 }, { x: 0.38, y: 0.32 }, { x: 0, y: 0.32 }];
       }
 
-      // যদি আগের পাতা থেকে কোনো ধারাবাহিক খবর লিংক করার পেন্ডিং টোকেন থাকে, তা স্বয়ংক্রিয়ভাবে জুড়ে দেওয়া
       const autoToken = pendingStoryToken ? `https://dainikkalyan.com/${pendingStoryToken}` : null;
       const autoTargetPage = pendingFromPage ? pendingFromPage : null;
 
@@ -293,6 +283,7 @@ export default function EpaperAdmin() {
         articleId: selectedTarget.startsWith('article:') ? Number(selectedTarget.split(':')[1]) : null,
         targetPageNumber: selectedTarget.startsWith('page:') ? Number(selectedTarget.split(':')[1]) : autoTargetPage,
         targetUrl: autoToken,
+        plainText: '',
       };
 
       setRegions(current => [...current, newRegion]);
@@ -342,6 +333,7 @@ export default function EpaperAdmin() {
       articleId: selectedTarget.startsWith('article:') ? Number(selectedTarget.split(':')[1]) : null,
       targetPageNumber: selectedTarget.startsWith('page:') ? Number(selectedTarget.split(':')[1]) : autoTargetPage,
       targetUrl: autoToken,
+      plainText: '',
     };
 
     setRegions(current => [...current, newRegion]);
@@ -354,7 +346,6 @@ export default function EpaperAdmin() {
     }
   }
 
-  // অঞ্চল সংরক্ষণ
   async function saveRegions() {
     if (!pageId) return;
     const response = await fetch('/api/admin/epaper', {
@@ -363,18 +354,15 @@ export default function EpaperAdmin() {
       body: JSON.stringify({ pageId, regions }),
     });
     const data = await response.json();
-    setMessage(response.ok ? 'সকল লিংক সফলভাবে সংরক্ষিত হয়েছে।' : data.error || 'সংরক্ষণ ব্যর্থ হয়েছে');
+    setMessage(response.ok ? 'সকল লিংক ও টেক্সট সফলভাবে সংরক্ষিত হয়েছে।' : data.error || 'সংরক্ষণ ব্যর্থ হয়েছে');
     if (response.ok) void load(editionId);
   }
 
-  // ২ পাতার ধারাবাহিক খবরের জন্য অটো-সেভ ও পেজ ট্রানজিশন
   async function saveAndGoToNextPage(targetPageNum: number) {
     if (!pageId || !selected) return;
 
-    // একটি নির্দিষ্ট ইউনিক স্টোরি টোকেন তৈরি
     const storyToken = `group:story_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-    // বর্তমান পাতার অঞ্চলে এই টোকেন ও টার্গেট পেজ বসিয়ে সেভ করা
     const updatedRegions = regions.map((r, i) => {
       if (i === 0 || r.targetPageNumber === targetPageNum) {
         return {
@@ -393,7 +381,6 @@ export default function EpaperAdmin() {
     });
 
     if (response.ok) {
-      // সেশনে টোকেন সংরক্ষণ যেন পরের পাতায় কাটলেই স্বয়ংক্রিয়ভাবে লিঙ্ক হয়ে যায়
       setPendingStoryToken(storyToken);
       setPendingFromPage(selected.pageNumber);
 
@@ -409,7 +396,6 @@ export default function EpaperAdmin() {
     }
   }
 
-  // প্রকাশনা স্ট্যাটাস
   async function publish(status: 'published' | 'draft') {
     if (!editionId) return;
     setPublishing(true);
@@ -431,7 +417,6 @@ export default function EpaperAdmin() {
       <PageTitle title="ই-পেপার ও ম্যাগাজিন ওয়ার্কস্পেস" subtitle="নিয়মিত ও বিশেষ সংখ্যা/ম্যাগাজিন তৈরি, সম্পাদনা ও ভিজ্যুয়াল লিংক পরিচালনা করুন।" />
 
       <div className="epaper-workspace">
-        {/* সংখ্যা ও তারিখ সেটিংস */}
         <section className="admin-panel epaper-setup">
           <div className="workspace-heading">
             <div>
@@ -446,12 +431,7 @@ export default function EpaperAdmin() {
           <div className="two-form-grid">
             <label>
               প্রকাশনার তারিখ (Date)
-              <input
-                type="date"
-                value={date}
-                onChange={e => setDate(e.target.value)}
-                style={{ fontSize: '15px', fontWeight: 700 }}
-              />
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ fontSize: '15px', fontWeight: 700 }} />
             </label>
             <label>
               শিরোনাম (Title)
@@ -479,20 +459,12 @@ export default function EpaperAdmin() {
           </div>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '14px' }}>
-            <button
-              className="button button-green"
-              onClick={createNewEdition}
-              style={{ fontWeight: 800, padding: '10px 18px', background: '#16a34a' }}
-            >
+            <button className="button button-green" onClick={createNewEdition} style={{ fontWeight: 800, padding: '10px 18px', background: '#16a34a' }}>
               ➕ {date} তারিখে নতুন সংখ্যা তৈরি করুন
             </button>
 
             {editionId && (
-              <button
-                className="button button-ghost"
-                onClick={updateEdition}
-                style={{ fontWeight: 700, border: '1px solid #cbd5e1' }}
-              >
+              <button className="button button-ghost" onClick={updateEdition} style={{ fontWeight: 700, border: '1px solid #cbd5e1' }}>
                 <Edit3 size={15} /> বর্তমান সংখ্যার তারিখ/নাম আপডেট
               </button>
             )}
@@ -544,7 +516,6 @@ export default function EpaperAdmin() {
           </div>
         </section>
 
-        {/* পৃষ্ঠা তালিকা */}
         <section className="admin-panel epaper-pages">
           <div className="workspace-heading">
             <div>
@@ -578,7 +549,6 @@ export default function EpaperAdmin() {
           </div>
         </section>
 
-        {/* ভিজ্যুয়াল লিংক ম্যাপার */}
         <section className="admin-panel epaper-mapper">
           <div className="workspace-heading">
             <div>
@@ -593,24 +563,16 @@ export default function EpaperAdmin() {
             </div>
           </div>
 
-          {/* শেপ সিলেকশন বার */}
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', padding: '10px 14px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '12px' }}>
             <span style={{ fontSize: '13px', fontWeight: 700, color: '#475569', marginRight: '6px' }}>শেপ টুল:</span>
 
             <button
               onClick={() => { setSelectedShape('rect'); setPolygonPoints([]); }}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 14px',
-                borderRadius: '6px',
+                display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 14px', borderRadius: '6px',
                 border: selectedShape === 'rect' ? '2px solid #c8102e' : '1px solid #cbd5e1',
                 background: selectedShape === 'rect' ? '#fee2e2' : '#fff',
-                color: selectedShape === 'rect' ? '#991b1b' : '#334155',
-                fontWeight: 700,
-                fontSize: '13px',
-                cursor: 'pointer',
+                color: selectedShape === 'rect' ? '#991b1b' : '#334155', fontWeight: 700, fontSize: '13px', cursor: 'pointer',
               }}
             >
               <Square size={14} /> আয়তক্ষেত্র (Rect)
@@ -619,17 +581,10 @@ export default function EpaperAdmin() {
             <button
               onClick={() => { setSelectedShape('l'); setPolygonPoints([]); }}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 14px',
-                borderRadius: '6px',
+                display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 14px', borderRadius: '6px',
                 border: selectedShape === 'l' ? '2px solid #c8102e' : '1px solid #cbd5e1',
                 background: selectedShape === 'l' ? '#fee2e2' : '#fff',
-                color: selectedShape === 'l' ? '#991b1b' : '#334155',
-                fontWeight: 700,
-                fontSize: '13px',
-                cursor: 'pointer',
+                color: selectedShape === 'l' ? '#991b1b' : '#334155', fontWeight: 700, fontSize: '13px', cursor: 'pointer',
               }}
             >
               ⌐ এল-শেপ (L)
@@ -638,17 +593,10 @@ export default function EpaperAdmin() {
             <button
               onClick={() => { setSelectedShape('t'); setPolygonPoints([]); }}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 14px',
-                borderRadius: '6px',
+                display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 14px', borderRadius: '6px',
                 border: selectedShape === 't' ? '2px solid #c8102e' : '1px solid #cbd5e1',
                 background: selectedShape === 't' ? '#fee2e2' : '#fff',
-                color: selectedShape === 't' ? '#991b1b' : '#334155',
-                fontWeight: 700,
-                fontSize: '13px',
-                cursor: 'pointer',
+                color: selectedShape === 't' ? '#991b1b' : '#334155', fontWeight: 700, fontSize: '13px', cursor: 'pointer',
               }}
             >
               ┬ টি-শেপ (T)
@@ -657,17 +605,10 @@ export default function EpaperAdmin() {
             <button
               onClick={() => { setSelectedShape('polygon'); setPolygonPoints([]); }}
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '6px 14px',
-                borderRadius: '6px',
+                display: 'flex', alignItems: 'center', gap: '5px', padding: '6px 14px', borderRadius: '6px',
                 border: selectedShape === 'polygon' ? '2px solid #c8102e' : '1px solid #cbd5e1',
                 background: selectedShape === 'polygon' ? '#fee2e2' : '#fff',
-                color: selectedShape === 'polygon' ? '#991b1b' : '#334155',
-                fontWeight: 700,
-                fontSize: '13px',
-                cursor: 'pointer',
+                color: selectedShape === 'polygon' ? '#991b1b' : '#334155', fontWeight: 700, fontSize: '13px', cursor: 'pointer',
               }}
             >
               ⬡ বহুভুজ (ডট মোড)
@@ -686,7 +627,6 @@ export default function EpaperAdmin() {
             )}
           </div>
 
-          {/* ২ পাতার চলমান সংযোগ মোডের সক্রিয় ব্যানার */}
           {pendingStoryToken && (
             <div style={{ background: '#ecfdf5', border: '1.5px solid #10b981', padding: '10px 16px', borderRadius: '8px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#065f46', fontSize: '14px', fontWeight: 700 }}>
@@ -701,30 +641,16 @@ export default function EpaperAdmin() {
 
           {selected ? (
             <>
-              {/* ড্রয়িং ক্যানভাস */}
               <div style={{ overflow: 'auto', maxHeight: '760px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#334155', padding: '12px', textAlign: 'center' }}>
                 <div
                   ref={canvas}
-                  style={{
-                    width: `${zoom}%`,
-                    position: 'relative',
-                    margin: '0 auto',
-                    userSelect: 'none',
-                    touchAction: 'none',
-                    cursor: 'crosshair',
-                  }}
+                  style={{ width: `${zoom}%`, position: 'relative', margin: '0 auto', userSelect: 'none', touchAction: 'none', cursor: 'crosshair' }}
                   onPointerDown={handlePointerDown}
                   onPointerMove={handlePointerMove}
                   onPointerUp={handlePointerUp}
                 >
-                  <img
-                    src={selected.imagePath}
-                    alt={`পৃষ্ঠা ${selected.pageNumber}`}
-                    draggable={false}
-                    style={{ width: '100%', height: 'auto', display: 'block', pointerEvents: 'none', userSelect: 'none' }}
-                  />
+                  <img src={selected.imagePath} alt={`পৃষ্ঠা ${selected.pageNumber}`} draggable={false} style={{ width: '100%', height: 'auto', display: 'block', pointerEvents: 'none', userSelect: 'none' }} />
 
-                  {/* পূর্বের সংরক্ষিত অঞ্চলসমূহ */}
                   {regions.map((region, index) => {
                     let clipStyle: string | undefined = undefined;
                     if (region.shapeType === 'l') {
@@ -761,7 +687,6 @@ export default function EpaperAdmin() {
                     );
                   })}
 
-                  {/* লাইভ ড্র্যাগ বক্স */}
                   {isDragging && dragStart && currentMouse && (
                     <div
                       style={{
@@ -777,7 +702,6 @@ export default function EpaperAdmin() {
                     />
                   )}
 
-                  {/* বহুভুজ ডট ও লাইন */}
                   {selectedShape === 'polygon' && polygonPoints.length > 0 && (
                     <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
                       <polyline
@@ -805,10 +729,9 @@ export default function EpaperAdmin() {
                 </div>
               </div>
 
-              {/* টার্গেট কন্ট্রোল */}
               <div className="mapping-controls" style={{ marginTop: '14px' }}>
                 <label>
-                  নতুন অঞ্চলের লিংক টার্গেট:
+                  নতুন অঞ্চলের লিংক টার্গেট নির্বাচন করুন:
                   <select value={selectedTarget} onChange={e => setSelectedTarget(e.target.value)}>
                     <option value="">-- সংবাদ নির্বাচন করুন বা ভিতরের পাতায় পাঠান --</option>
                     {articles.map(article => (
@@ -829,7 +752,6 @@ export default function EpaperAdmin() {
                 </button>
               </div>
 
-              {/* অঞ্চলের তালিকা ও ভিতরের পাতার অটো-লিংক */}
               <div className="region-list">
                 {regions.map((region, index) => {
                   const targetPageNum = region.targetPageNumber || (selectedTarget.startsWith('page:') ? Number(selectedTarget.split(':')[1]) : null);
@@ -839,8 +761,8 @@ export default function EpaperAdmin() {
                       key={region.id || index}
                       style={{
                         display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
+                        flexDirection: 'column',
+                        gap: '8px',
                         padding: '10px 14px',
                         background: targetPageNum ? '#fff1f2' : '#fff',
                         border: targetPageNum ? '1px solid #fecdd3' : '1px solid #e2e8f0',
@@ -848,70 +770,76 @@ export default function EpaperAdmin() {
                         marginBottom: '8px',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
-                        <span style={{ fontWeight: 800, color: '#c8102e', width: '28px' }}>#{index + 1}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                          <span style={{ fontWeight: 800, color: '#c8102e', width: '28px' }}>#{index + 1}</span>
 
-                        <select
-                          value={region.articleId ? `article:${region.articleId}` : region.targetPageNumber ? `page:${region.targetPageNumber}` : ''}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setRegions(current =>
-                              current.map((r, itemIdx) => {
-                                if (itemIdx === index) {
-                                  return {
-                                    ...r,
-                                    articleId: val.startsWith('article:') ? Number(val.split(':')[1]) : null,
-                                    targetPageNumber: val.startsWith('page:') ? Number(val.split(':')[1]) : null,
-                                  };
-                                }
-                                return r;
-                              })
-                            );
-                          }}
-                          style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', flex: 1, maxWidth: '420px', fontSize: '13px' }}
-                        >
-                          <option value="">-- সংবাদ নির্বাচন করুন বা ভিতরের পাতায় পাঠান --</option>
-                          {articles.map(art => (
-                            <option key={art.id} value={`article:${art.id}`}>
-                              অনলাইন সংবাদ: {art.titleBn}
-                            </option>
-                          ))}
-                          {pages.filter(p => p.id !== pageId).map(p => (
-                            <option key={p.id} value={`page:${p.pageNumber}`}>
-                              ভিতরের কলাম: পৃষ্ঠা {p.pageNumber}-এ দেখুন
-                            </option>
-                          ))}
-                        </select>
-
-                        {/* ২ পাতার ধারাবাহিক খবরের জন্য অটো-সেভ বাটন */}
-                        {targetPageNum && (
-                          <button
-                            onClick={() => saveAndGoToNextPage(targetPageNum)}
-                            style={{
-                              background: '#c8102e',
-                              color: '#fff',
-                              border: 'none',
-                              padding: '6px 14px',
-                              borderRadius: '6px',
-                              fontSize: '12px',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '5px',
+                          <select
+                            value={region.articleId ? `article:${region.articleId}` : region.targetPageNumber ? `page:${region.targetPageNumber}` : ''}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setRegions(current =>
+                                current.map((r, itemIdx) => {
+                                  if (itemIdx === index) {
+                                    return {
+                                      ...r,
+                                      articleId: val.startsWith('article:') ? Number(val.split(':')[1]) : null,
+                                      targetPageNumber: val.startsWith('page:') ? Number(val.split(':')[1]) : null,
+                                    };
+                                  }
+                                  return r;
+                                })
+                              );
                             }}
+                            style={{ padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', flex: 1, maxWidth: '420px', fontSize: '13px' }}
                           >
-                            💾 পৃষ্ঠা {selected.pageNumber} সেভ করে পৃষ্ঠা {targetPageNum}-এ যান
-                          </button>
-                        )}
+                            <option value="">-- সংবাদ নির্বাচন করুন বা ভিতরের পাতায় পাঠান --</option>
+                            {articles.map(art => (
+                              <option key={art.id} value={`article:${art.id}`}>
+                                অনলাইন সংবাদ: {art.titleBn}
+                              </option>
+                            ))}
+                            {pages.filter(p => p.id !== pageId).map(p => (
+                              <option key={p.id} value={`page:${p.pageNumber}`}>
+                                ভিতরের কলাম: পৃষ্ঠা {p.pageNumber}-এ দেখুন
+                              </option>
+                            ))}
+                          </select>
+
+                          {targetPageNum && (
+                            <button
+                              onClick={() => saveAndGoToNextPage(targetPageNum)}
+                              style={{
+                                background: '#c8102e', color: '#fff', border: 'none', padding: '6px 14px',
+                                borderRadius: '6px', fontSize: '12px', fontWeight: 700, cursor: 'pointer',
+                              }}
+                            >
+                              💾 পৃষ্ঠা {selected.pageNumber} সেভ করে পৃষ্ঠা {targetPageNum}-এ যান
+                            </button>
+                          )}
+                        </div>
+
+                        <button
+                          onClick={() => setRegions(current => current.filter((_, itemIndex) => itemIndex !== index))}
+                          style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
+                        >
+                          মুছুন
+                        </button>
                       </div>
 
-                      <button
-                        onClick={() => setRegions(current => current.filter((_, itemIndex) => itemIndex !== index))}
-                        style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: '13px', fontWeight: 600, marginLeft: '12px' }}
-                      >
-                        মুছুন
-                      </button>
+                      {/* টেক্সট ভিউ-এর জন্য প্লেইন টেক্সট বক্স */}
+                      <textarea
+                        rows={2}
+                        value={region.plainText || ''}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setRegions(current =>
+                            current.map((r, itemIdx) => (itemIdx === index ? { ...r, plainText: val } : r))
+                          );
+                        }}
+                        placeholder="টেক্সট ভিউ-এর জন্য সংবাদের প্লেইন টেক্সট এখানে লিখুন/পেস্ট করুন (ঐচ্ছিক)..."
+                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                      />
                     </div>
                   );
                 })}
@@ -929,4 +857,4 @@ export default function EpaperAdmin() {
       {message && <p className="admin-feedback">{message}</p>}
     </>
   );
-}
+} 

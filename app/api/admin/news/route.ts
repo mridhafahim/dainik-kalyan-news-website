@@ -1,13 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { desc, eq } from 'drizzle-orm'
-import { db } from '@/lib/db'
+import { db, pool } from '@/lib/db'
 import { newsArticles, articleCategories } from '@/lib/db/schema'
 import { requireAdmin } from '@/lib/admin-auth'
 
 export async function GET() {
   try {
+    await pool.query(`ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'::jsonb`).catch(() => {})
     const stories = await db.select().from(newsArticles).orderBy(desc(newsArticles.createdAt))
-    return NextResponse.json({ stories }, { headers: { 'Cache-Control': 'no-store' } })
+
+    // সর্বাধিক ব্যবহৃত ট্যাগগুলোর তালিকা তৈরি
+    const tagCounts: Record<string, number> = {}
+    stories.forEach((s: any) => {
+      if (Array.isArray(s.tags)) {
+        s.tags.forEach((t: string) => {
+          const clean = String(t).trim()
+          if (clean) tagCounts[clean] = (tagCounts[clean] || 0) + 1
+        })
+      }
+    })
+    const popularTags = Object.entries(tagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([tag]) => tag)
+
+    return NextResponse.json({ stories, popularTags }, { headers: { 'Cache-Control': 'no-store' } })
   } catch {
     return NextResponse.json({ error: 'সংবাদ তালিকা লোড ব্যর্থ' }, { status: 500 })
   }
@@ -18,16 +35,20 @@ export async function POST(request: NextRequest) {
   if (!actor) return NextResponse.json({ error: 'অননুমোদিত এক্সেস' }, { status: 403 })
 
   try {
+    await pool.query(`ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'::jsonb`).catch(() => {})
+
     const body = await request.json()
     const titleBn = String(body.titleBn || '').trim()
     const titleEn = String(body.titleEn || titleBn).trim()
     const excerptBn = String(body.excerptBn || '').trim()
     const bodyBn = String(body.bodyBn || '').trim()
 
-    // একাধিক ক্যাটাগরি প্রসেসিং
     const rawCategoryIds = Array.isArray(body.categoryIds) ? body.categoryIds : (body.categoryId ? [body.categoryId] : [])
     const categoryIds: number[] = Array.from(new Set(rawCategoryIds.map(Number).filter((n: number) => !isNaN(n) && n > 0)))
     const primaryCategoryId = categoryIds[0] || null
+
+    const rawTags = Array.isArray(body.tags) ? body.tags : []
+    const tags: string[] = Array.from(new Set(rawTags.map((t: unknown) => String(t).trim()).filter(Boolean)))
 
     const imageUrl = String(body.imageUrl || '').trim()
     const authorName = String(body.authorName || 'নিজস্ব প্রতিবেদক').trim()
@@ -47,7 +68,6 @@ export async function POST(request: NextRequest) {
 
     const publishedAt = status === 'published' ? new Date() : null
 
-    // ১. মূল আর্টিকেলে সেভ করা
     const [story] = await db
       .insert(newsArticles)
       .values({
@@ -63,12 +83,12 @@ export async function POST(request: NextRequest) {
         authorName,
         status,
         isBreaking,
+        tags,
         publishedAt,
         updatedAt: new Date()
       })
       .returning()
 
-    // ২. নির্বাচিত সকল ক্যাটাগরি articleCategories টেবিলে যুক্ত করা
     if (categoryIds.length > 0) {
       await db
         .insert(articleCategories)
@@ -88,6 +108,8 @@ export async function PUT(request: NextRequest) {
   if (!actor) return NextResponse.json({ error: 'অননুমোদিত এক্সেস' }, { status: 403 })
 
   try {
+    await pool.query(`ALTER TABLE news_articles ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'::jsonb`).catch(() => {})
+
     const body = await request.json()
     const id = Number(body.id)
     if (!id) return NextResponse.json({ error: 'সংবাদ আইডি আবশ্যক' }, { status: 400 })
@@ -107,6 +129,9 @@ export async function PUT(request: NextRequest) {
     if (body.imageUrl !== undefined) updateData.imageUrl = String(body.imageUrl).trim()
     if (body.authorName !== undefined) updateData.authorName = String(body.authorName).trim()
     if (body.isBreaking !== undefined) updateData.isBreaking = Boolean(body.isBreaking)
+    if (Array.isArray(body.tags)) {
+      updateData.tags = Array.from(new Set(body.tags.map((t: unknown) => String(t).trim()).filter(Boolean)))
+    }
 
     if (body.status !== undefined) {
       updateData.status = body.status
@@ -121,7 +146,6 @@ export async function PUT(request: NextRequest) {
       .where(eq(newsArticles.id, id))
       .returning()
 
-    // ক্যাটাগরিগুলো আপডেট করা
     if (body.categoryIds !== undefined) {
       await db.delete(articleCategories).where(eq(articleCategories.articleId, id)).catch(() => {})
       if (categoryIds.length > 0) {

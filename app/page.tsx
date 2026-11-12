@@ -73,7 +73,7 @@ export default function HomePage() {
     <SiteChrome>
       <main style={{ maxWidth: 1380, width: '94%', margin: '0 auto', padding: '20px 0 60px' }}>
         {/* Main 2-Column Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: 32, alignItems: 'start' }}>
+        <div className="home-main-grid">
           {/* Left Column */}
           <div>
             {leadStory && (
@@ -180,10 +180,10 @@ export default function HomePage() {
           {/* Right Sidebar */}
           <aside style={{ display: 'grid', gap: 28, position: 'sticky', top: 80 }}>
             {/* British-Style Calendar Widget */}
-            <div style={{ background: '#fff', border: '2px solid #1e293b', borderRadius: 12, overflow: 'hidden', textAlign: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.06)' }}>
+            <div className="desktop-only-calendar" style={{ background: '#fff', border: '2px solid #1e293b', borderRadius: 12, overflow: 'hidden', textAlign: 'center', boxShadow: '0 4px 16px rgba(0,0,0,0.06)' }}>
               <div style={{ background: '#8b0000', color: '#fff', padding: '12px 16px', borderBottom: '3px solid #d4af37' }}>
-                <span style={{ fontFamily: '"Georgia", serif', letterSpacing: '2px', fontSize: 12, fontWeight: 700 }}>THE DAILY KALYAN</span>
-                <small style={{ fontSize: 11, display: 'block', opacity: 0.9 }}>YASHORE EDITION</small>
+                <span style={{ fontFamily: '"Georgia", serif', letterSpacing: '2px', fontSize: 12, fontWeight: 700 }}>THE DAINIK KALYAN</span>
+                <small style={{ fontSize: 11, display: 'block', opacity: 0.9 }}>JASHORE EDITION</small>
               </div>
 
               <div style={{ padding: '24px 20px', background: '#faf9f6' }}>

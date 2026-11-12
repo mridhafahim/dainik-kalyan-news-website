@@ -21,11 +21,12 @@ type NewsFormProps = {
     bodyBn?: string
     isBreaking?: boolean
     status?: string
+    tags?: string[]
   }
   editing?: boolean
   articleId?: number
   onSuccess?: () => void
-  [key: string]: any // যেকোনো অতিরিক্ত প্রপ নিরাপদে গ্রহণ করার জন্য
+  [key: string]: any
 }
 
 export default function NewsForm({
@@ -36,7 +37,7 @@ export default function NewsForm({
 }: NewsFormProps) {
   const [categories, setCategories] = useState<Category[]>([])
   const [titleBn, setTitleBn] = useState(initialData?.titleBn || '')
-  
+
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>(
     initialData?.categoryIds || (initialData?.categoryId ? [initialData.categoryId] : [])
   )
@@ -48,17 +49,25 @@ export default function NewsForm({
   const [isBreaking, setIsBreaking] = useState(Boolean(initialData?.isBreaking))
   const [status, setStatus] = useState(initialData?.status || 'published')
 
+  const [tags, setTags] = useState<string[]>(Array.isArray(initialData?.tags) ? initialData.tags : [])
+  const [tagInput, setTagInput] = useState('')
+  const [popularTags, setPopularTags] = useState<string[]>([])
+  const [showPopularTags, setShowPopularTags] = useState(false)
+
   const [uploadingImage, setUploadingImage] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null)
 
-  // Load existing article details if in edit mode and articleId is passed
+  // Load existing article details & popular tags
   useEffect(() => {
     const currentId = articleId || initialData?.id
-    if (currentId && !initialData?.titleBn) {
-      fetch('/api/admin/news')
-        .then(res => res.json())
-        .then(data => {
+    fetch('/api/admin/news')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data.popularTags)) {
+          setPopularTags(data.popularTags)
+        }
+        if (currentId && !initialData?.titleBn) {
           const found = (data.stories || []).find((s: any) => s.id === currentId)
           if (found) {
             setTitleBn(found.titleBn || '')
@@ -69,10 +78,11 @@ export default function NewsForm({
             setIsBreaking(Boolean(found.isBreaking))
             setStatus(found.status || 'published')
             if (found.categoryId) setSelectedCategoryIds([found.categoryId])
+            if (Array.isArray(found.tags)) setTags(found.tags)
           }
-        })
-        .catch(() => {})
-    }
+        }
+      })
+      .catch(() => {})
   }, [articleId, initialData])
 
   useEffect(() => {
@@ -100,6 +110,13 @@ export default function NewsForm({
     } else {
       setSelectedCategoryIds(categories.map(c => c.id))
     }
+  }
+
+  function addTagsFromInput() {
+    if (!tagInput.trim()) return
+    const newTags = tagInput.split(',').map(t => t.trim()).filter(Boolean)
+    setTags(prev => Array.from(new Set([...prev, ...newTags])))
+    setTagInput('')
   }
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -155,7 +172,8 @@ export default function NewsForm({
       excerptBn,
       bodyBn,
       isBreaking,
-      status
+      status,
+      tags
     }
 
     try {
@@ -179,6 +197,7 @@ export default function NewsForm({
           setExcerptBn('')
           setBodyBn('')
           setIsBreaking(false)
+          setTags([])
         }
         if (onSuccess) onSuccess()
       } else {
@@ -341,6 +360,85 @@ export default function NewsForm({
             background: '#f8fafc'
           }}
         />
+      </div>
+
+      {/* Tags Section (WordPress Style) */}
+      <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 10, padding: 18, display: 'grid', gap: 10 }}>
+        <label style={{ fontWeight: 700, fontSize: 15, color: '#0f172a' }}>
+          Tags (সংযুক্ত ট্যাগসমূহ)
+        </label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            type="text"
+            value={tagInput}
+            onChange={e => setTagInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                addTagsFromInput()
+              }
+            }}
+            placeholder="যেমন: যশোর, রাজনীতি, খেলাধুলা"
+            style={{ flex: 1, padding: '8px 12px', borderRadius: 6, border: '1px solid #94a3b8', fontSize: 14 }}
+          />
+          <button
+            type="button"
+            onClick={addTagsFromInput}
+            style={{ padding: '8px 18px', borderRadius: 6, border: '1px solid #2563eb', background: '#f8fafc', color: '#2563eb', fontWeight: 700, cursor: 'pointer' }}
+          >
+            Add
+          </button>
+        </div>
+        <small style={{ color: '#64748b', fontSize: 12 }}>Separate tags with commas (কমা দিয়ে একাধিক ট্যাগ আলাদা করুন)</small>
+
+        {tags.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
+            {tags.map(tag => (
+              <span
+                key={tag}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: '#1e293b', background: '#f1f5f9', padding: '4px 10px', borderRadius: 999, border: '1px solid #cbd5e1' }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setTags(prev => prev.filter(t => t !== tag))}
+                  style={{ border: 'none', background: 'transparent', color: '#6d28d9', fontWeight: 900, cursor: 'pointer', padding: 0, fontSize: 15, lineHeight: 1 }}
+                >
+                  ×
+                </button>
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div>
+          <button
+            type="button"
+            onClick={() => setShowPopularTags(!showPopularTags)}
+            style={{ background: 'none', border: 'none', color: '#2563eb', textDecoration: 'underline', fontSize: 13, cursor: 'pointer', padding: 0 }}
+          >
+            Choose from the most used tags
+          </button>
+
+          {showPopularTags && (
+            <div style={{ marginTop: 10, padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {popularTags.length === 0 ? (
+                <span style={{ fontSize: 12, color: '#64748b' }}>এখনো কোনো ব্যবহৃত ট্যাগ নেই।</span>
+              ) : (
+                popularTags.map(pt => (
+                  <button
+                    key={pt}
+                    type="button"
+                    onClick={() => setTags(prev => Array.from(new Set([...prev, pt])))}
+                    style={{ border: '1px solid #cbd5e1', background: '#fff', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: '#334155' }}
+                  >
+                    + {pt}
+                  </button>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Feature Image Upload */}

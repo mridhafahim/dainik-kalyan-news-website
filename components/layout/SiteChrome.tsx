@@ -84,16 +84,14 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* 2. MAIN LOGO HEADER */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '16px 0' }}>
-        <div style={{ maxWidth: 1380, width: '94%', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '14px 0' }}>
+        <div style={{ maxWidth: 1380, width: '94%', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <Link href="/" style={{ textDecoration: 'none' }}>
-              <h1 style={{ margin: 0, fontSize: 'clamp(32px, 5vw, 54px)', fontWeight: 900, color: '#c8102e', letterSpacing: '-1px' }}>
-                দৈনিক কল্যাণ
-              </h1>
+            <Link href="/" style={{ textDecoration: 'none', display: 'inline-block' }}>
+              <img src="/dainik-kalyan-logo.png" alt="দৈনিক কল্যাণ" style={{ height: 'clamp(42px, 6vw, 64px)', width: 'auto', display: 'block', objectFit: 'contain' }} />
             </Link>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
-              দক্ষিণাঞ্চলের শীর্ষ দৈনিক ও অনলাইন নিউজ পোর্টাল · যশোর
+            <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 600, color: '#475569' }}>
+              বস্তুনিষ্ঠতায় আমাদের অহংকার
             </p>
           </div>
 
@@ -143,9 +141,10 @@ export function SiteChrome({ children }: { children: React.ReactNode }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 36, borderBottom: '1px solid #334155', paddingBottom: 36 }}>
             {/* Column 1: Brand & Office */}
             <div>
-              <h2 style={{ fontSize: 32, margin: '0 0 10px', color: '#ef4444', fontWeight: 900 }}>
-                দৈনিক কল্যাণ
-              </h2>
+              <img src="/dainik-kalyan-logo.png" alt="দৈনিক কল্যাণ" style={{ height: 48, width: 'auto', display: 'block', filter: 'brightness(0) invert(1)', marginBottom: 8 }} />
+              <p style={{ fontSize: 13, color: '#cbd5e1', fontWeight: 600, margin: '0 0 8px' }}>
+                বস্তুনিষ্ঠতায় আমাদের অহংকার
+              </p>
               <p style={{ fontSize: 14, color: '#94a3b8', lineHeight: 1.6 }}>
                 যশোর থেকে প্রকাশিত দক্ষিণ-পশ্চিমাঞ্চলের গণমানুষের জনপ্রিয় দৈনিক পত্রিকা।
               </p>

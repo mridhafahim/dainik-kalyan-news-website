@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
     try {
       await pool.query(`ALTER TABLE epaper_editions ADD COLUMN IF NOT EXISTS special_name text`);
       await pool.query(`ALTER TABLE epaper_editions ADD COLUMN IF NOT EXISTS is_special boolean DEFAULT false`);
+      await pool.query(`ALTER TABLE epaper_regions ADD COLUMN IF NOT EXISTS plain_text text`);
     } catch {}
 
     const editionIdParam = request.nextUrl.searchParams.get('edition');
@@ -98,7 +99,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'ইনভ্যালিড রিকোয়েস্ট' }, { status: 400 });
     }
 
-    // ১. পৃষ্ঠা আপলোড
     if (body.pageNumber !== undefined) {
       const editionId = Number(body.editionId);
       const pageNumber = Number(body.pageNumber);
@@ -135,7 +135,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ page });
     }
 
-    // ২. নির্দিষ্ট তারিখে নতুন সংস্করণ তৈরি
     const editionDate = String(body.editionDate || '').trim();
     const title = String(body.title || 'দৈনিক কল্যাণ').trim();
     const isSpecial = Boolean(body.isSpecial);
@@ -293,6 +292,7 @@ export async function PUT(request: NextRequest) {
       await pool.query(`ALTER TABLE epaper_regions ADD COLUMN IF NOT EXISTS article_id integer`);
       await pool.query(`ALTER TABLE epaper_regions ADD COLUMN IF NOT EXISTS target_page_number integer`);
       await pool.query(`ALTER TABLE epaper_regions ADD COLUMN IF NOT EXISTS target_url text`);
+      await pool.query(`ALTER TABLE epaper_regions ADD COLUMN IF NOT EXISTS plain_text text`);
     } catch {}
 
     try {
@@ -332,6 +332,7 @@ export async function PUT(request: NextRequest) {
         articleId: isNaN(artId as any) ? null : artId,
         targetPageNumber: isNaN(tgtPage as any) ? null : tgtPage,
         targetUrl: tgtUrl,
+        plainText: r.plainText ? String(r.plainText).trim() : null,
       };
     });
 
@@ -343,9 +344,9 @@ export async function PUT(request: NextRequest) {
       for (const r of sanitizedRegions) {
         await client.query(
           `INSERT INTO epaper_regions 
-            (page_id, shape_type, points, x, y, width, height, article_id, target_page_number, target_url)
+            (page_id, shape_type, points, x, y, width, height, article_id, target_page_number, target_url, plain_text)
            VALUES 
-            ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10)`,
+            ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11)`,
           [
             pageId,
             r.shapeType,
@@ -357,6 +358,7 @@ export async function PUT(request: NextRequest) {
             r.articleId,
             r.targetPageNumber,
             r.targetUrl,
+            r.plainText,
           ]
         );
       }

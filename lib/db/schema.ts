@@ -45,6 +45,7 @@ export const newsArticles = pgTable('news_articles', {
   scheduledAt: timestamp('scheduled_at', { withTimezone: true }),
   isBreaking: boolean('is_breaking').notNull().default(false),
   viewCount: integer('view_count').notNull().default(0), // ভিউ কাউন্ট
+  tags: jsonb('tags').$type<string[]>().notNull().default([]),
   publishedAt: timestamp('published_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
@@ -101,6 +102,7 @@ export const epaperRegions = pgTable('epaper_regions', {
   articleId: integer('article_id'),
   targetPageNumber: integer('target_page_number'),
   targetUrl: text('target_url'),
+  plainText: text('plain_text'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 })
 

@@ -126,3 +126,26 @@ export async function getPublishedVideos() {
 export async function getAdminStories() {
   return db.select().from(newsArticles).orderBy(desc(newsArticles.updatedAt), desc(newsArticles.createdAt))
 }
+export async function getRelatedStoriesForArticle(currentStory: { id: number; tags?: string[] | null; categoryId?: number | null }) {
+  const allPublished = await getPublishedStories()
+  const others = allPublished.filter(s => s.id !== currentStory.id)
+  const currentTags = Array.isArray(currentStory.tags) ? currentStory.tags.map(t => t.toLowerCase()) : []
+
+  // ট্যাগ অনুযায়ী মিল খোঁজা
+  const tagMatched = others.filter(s => {
+    const sTags = Array.isArray((s as any).tags) ? (s as any).tags.map((t: string) => t.toLowerCase()) : []
+    return currentTags.length > 0 && sTags.some((t: string) => currentTags.includes(t))
+  })
+
+  const nonTagFallback = others.filter(s => !tagMatched.some(tm => tm.id === s.id))
+  const combinedPool = [...tagMatched, ...nonTagFallback]
+
+  // ১. ডান পাশের "সর্বশেষ" অংশ (সর্বোচ্চ ৫টি)
+  const rightSidebarStories = combinedPool.slice(0, 5)
+  const rightIds = new Set(rightSidebarStories.map(s => s.id))
+
+  // ২. নিচের "আরও পড়ুন" অংশ (ডান পাশেরগুলোর সাথে কখনোই মিলবে না)
+  const bottomRelatedStories = combinedPool.filter(s => !rightIds.has(s.id)).slice(0, 4)
+
+  return { rightSidebarStories, bottomRelatedStories }
+}

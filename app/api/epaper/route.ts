@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
     try {
       await pool.query(`ALTER TABLE epaper_editions ADD COLUMN IF NOT EXISTS special_name text`);
       await pool.query(`ALTER TABLE epaper_editions ADD COLUMN IF NOT EXISTS is_special boolean DEFAULT false`);
+      await pool.query(`ALTER TABLE epaper_regions ADD COLUMN IF NOT EXISTS plain_text text`);
     } catch {}
 
     const query = isAdmin
@@ -84,13 +85,16 @@ export async function GET(request: NextRequest) {
 
     const regions = pages.length ? allRegions.filter(r => r.pageId === pages[0].id) : [];
 
-    const articles = isAdmin
-      ? await db
-          .select({ id: newsArticles.id, titleBn: newsArticles.titleBn })
-          .from(newsArticles)
-          .where(eq(newsArticles.status, 'published'))
-          .orderBy(desc(newsArticles.publishedAt))
-      : [];
+    const articles = await db
+      .select({
+        id: newsArticles.id,
+        titleBn: newsArticles.titleBn,
+        bodyBn: newsArticles.bodyBn,
+        excerptBn: newsArticles.excerptBn,
+      })
+      .from(newsArticles)
+      .where(eq(newsArticles.status, 'published'))
+      .orderBy(desc(newsArticles.publishedAt));
 
     return NextResponse.json({
       editions: rawEditions,
