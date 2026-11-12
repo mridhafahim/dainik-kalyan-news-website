@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import { db, pool } from '@/lib/db';
-import { epaperEditions, epaperPages, epaperRegions } from '@/lib/db/schema';
+import { epaperPages, epaperRegions, newsArticles } from '@/lib/db/schema';
 import { requireAdmin } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
@@ -13,32 +13,44 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'অননুমোদিত অ্যাক্সেস' }, { status: 401 });
     }
 
-    // ডেটাবেজে বিশেষ সংখ্যার জন্য কলাম না থাকলে যুক্ত করা
     try {
       await pool.query(`ALTER TABLE epaper_editions ADD COLUMN IF NOT EXISTS special_name text`);
       await pool.query(`ALTER TABLE epaper_editions ADD COLUMN IF NOT EXISTS is_special boolean DEFAULT false`);
-    } catch (e) {
-      console.warn('Editions column check notice:', e);
-    }
+    } catch {}
 
     const editionIdParam = request.nextUrl.searchParams.get('edition');
 
-    const editions = await db
-      .select()
-      .from(epaperEditions)
-      .orderBy(desc(epaperEditions.editionDate), desc(epaperEditions.id));
+    const edRes = await pool.query(
+      `SELECT id, to_char(edition_date, 'YYYY-MM-DD') AS edition_date_str, title, status, is_special, special_name 
+       FROM epaper_editions 
+       ORDER BY edition_date DESC, id DESC`
+    );
+
+    const editions = edRes.rows.map(r => ({
+      id: r.id,
+      editionDate: String(r.edition_date_str),
+      title: r.title,
+      status: r.status,
+      isSpecial: Boolean(r.is_special),
+      specialName: r.special_name || '',
+    }));
 
     let activeEdition = null;
     if (editionIdParam) {
-      const found = editions.find(e => e.id === Number(editionIdParam));
-      if (found) activeEdition = found;
+      activeEdition = editions.find(e => e.id === Number(editionIdParam)) || null;
     }
     if (!activeEdition && editions.length > 0) {
       activeEdition = editions[0];
     }
 
+    const articles = await db
+      .select({ id: newsArticles.id, titleBn: newsArticles.titleBn })
+      .from(newsArticles)
+      .where(eq(newsArticles.status, 'published'))
+      .orderBy(desc(newsArticles.publishedAt));
+
     if (!activeEdition) {
-      return NextResponse.json({ edition: null, editions, pages: [] });
+      return NextResponse.json({ edition: null, editions, pages: [], articles });
     }
 
     const pages = await db
@@ -66,6 +78,7 @@ export async function GET(request: NextRequest) {
       edition: activeEdition,
       editions,
       pages: pagesWithRegions,
+      articles,
     });
   } catch (error: any) {
     console.error('Admin ePaper GET Error:', error);
@@ -122,14 +135,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ page });
     }
 
-    // ২. নতুন সংস্করণ / বিশেষ সংখ্যা তৈরি
+    // ২. নির্দিষ্ট তারিখে নতুন সংস্করণ তৈরি
     const editionDate = String(body.editionDate || '').trim();
     const title = String(body.title || 'দৈনিক কল্যাণ').trim();
     const isSpecial = Boolean(body.isSpecial);
     const specialName = String(body.specialName || '').trim();
 
-    if (!editionDate) {
-      return NextResponse.json({ error: 'সঠিক তারিখ দিন' }, { status: 400 });
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editionDate)) {
+      return NextResponse.json({ error: 'সঠিক তারিখ (YYYY-MM-DD) দিন' }, { status: 400 });
     }
 
     try {
@@ -139,14 +152,24 @@ export async function POST(request: NextRequest) {
 
     const result = await pool.query(
       `INSERT INTO epaper_editions (edition_date, title, status, is_special, special_name)
-       VALUES ($1, $2, 'draft', $3, $4)
+       VALUES ($1::date, $2, 'draft', $3, $4)
        ON CONFLICT (edition_date) DO UPDATE 
        SET title = $2, is_special = $3, special_name = $4, updated_at = NOW()
-       RETURNING *`,
+       RETURNING id, to_char(edition_date, 'YYYY-MM-DD') AS edition_date_str, title, status, is_special, special_name`,
       [editionDate, title, isSpecial, specialName || null]
     );
 
-    return NextResponse.json({ edition: result.rows[0] });
+    const r = result.rows[0];
+    return NextResponse.json({
+      edition: {
+        id: r.id,
+        editionDate: String(r.edition_date_str),
+        title: r.title,
+        status: r.status,
+        isSpecial: Boolean(r.is_special),
+        specialName: r.special_name || '',
+      },
+    });
   } catch (error: any) {
     console.error('Admin ePaper POST Error:', error);
     return NextResponse.json({ error: error.message || 'অপারেশন ব্যর্থ' }, { status: 500 });
@@ -167,7 +190,6 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'সংস্করণ আইডি দিন' }, { status: 400 });
     }
 
-    // বিশেষ সংখ্যা বা শিরোনাম সম্পাদন
     const updateFields: string[] = [];
     const values: any[] = [];
     let idx = 1;
@@ -188,9 +210,9 @@ export async function PATCH(request: NextRequest) {
       updateFields.push(`special_name = $${idx++}`);
       values.push(body.specialName ? String(body.specialName).trim() : null);
     }
-    if (body.editionDate !== undefined) {
-      updateFields.push(`edition_date = $${idx++}`);
-      values.push(body.editionDate);
+    if (body.editionDate !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(String(body.editionDate))) {
+      updateFields.push(`edition_date = $${idx++}::date`);
+      values.push(String(body.editionDate));
     }
 
     if (!updateFields.length) {
@@ -200,10 +222,20 @@ export async function PATCH(request: NextRequest) {
     updateFields.push(`updated_at = NOW()`);
     values.push(editionId);
 
-    const query = `UPDATE epaper_editions SET ${updateFields.join(', ')} WHERE id = $${idx} RETURNING *`;
+    const query = `UPDATE epaper_editions SET ${updateFields.join(', ')} WHERE id = $${idx} RETURNING id, to_char(edition_date, 'YYYY-MM-DD') AS edition_date_str, title, status, is_special, special_name`;
     const result = await pool.query(query, values);
 
-    return NextResponse.json({ edition: result.rows[0] });
+    const r = result.rows[0];
+    return NextResponse.json({
+      edition: r ? {
+        id: r.id,
+        editionDate: String(r.edition_date_str),
+        title: r.title,
+        status: r.status,
+        isSpecial: Boolean(r.is_special),
+        specialName: r.special_name || '',
+      } : null,
+    });
   } catch (error: any) {
     console.error('Admin ePaper PATCH Error:', error);
     return NextResponse.json({ error: error.message || 'স্ট্যাটাস আপডেট ব্যর্থ' }, { status: 500 });
@@ -263,7 +295,6 @@ export async function PUT(request: NextRequest) {
       await pool.query(`ALTER TABLE epaper_regions ADD COLUMN IF NOT EXISTS target_url text`);
     } catch {}
 
-    // বাধা সৃষ্টিকারী CHECK CONSTRAINT ড্রপ করা
     try {
       await pool.query(`
         DO $$ 
@@ -280,9 +311,7 @@ export async function PUT(request: NextRequest) {
           END LOOP; 
         END $$;
       `);
-    } catch (dropErr) {
-      console.warn('Constraint drop note:', dropErr);
-    }
+    } catch {}
 
     const sanitizedRegions = regions.map((r: any) => {
       const artId = r.articleId ? parseInt(String(r.articleId), 10) : null;
@@ -346,7 +375,6 @@ export async function PUT(request: NextRequest) {
     });
   } catch (error: any) {
     const errorMsg = error?.message ? `${error.message}${error.detail ? ' - ' + error.detail : ''}` : 'সংরক্ষণ ব্যর্থ হয়েছে';
-    console.error('Admin ePaper Save Error Details:', error);
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }

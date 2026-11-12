@@ -76,6 +76,11 @@ export default function EpaperPage() {
       if (!selectedDate) {
         setSelectedDate(currentEdition.editionDate);
       }
+      const [y, m] = currentEdition.editionDate.split('-').map(Number);
+      if (y && m) {
+        setCalYear(y);
+        setCalMonth(m - 1);
+      }
     }
   }, [currentEdition]);
 

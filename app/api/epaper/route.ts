@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { asc, desc, eq, inArray } from 'drizzle-orm';
 import { db, pool } from '@/lib/db';
-import { epaperEditions, epaperPages, epaperRegions, newsArticles } from '@/lib/db/schema';
+import { epaperPages, epaperRegions, newsArticles } from '@/lib/db/schema';
 import { requireAdmin } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
@@ -18,20 +18,19 @@ export async function GET(request: NextRequest) {
     const requestedDate = request.nextUrl.searchParams.get('date');
     const isSpecialFilter = request.nextUrl.searchParams.get('special');
 
-    // কলাম চেক
     try {
       await pool.query(`ALTER TABLE epaper_editions ADD COLUMN IF NOT EXISTS special_name text`);
       await pool.query(`ALTER TABLE epaper_editions ADD COLUMN IF NOT EXISTS is_special boolean DEFAULT false`);
     } catch {}
 
     const query = isAdmin
-      ? `SELECT * FROM epaper_editions ORDER BY edition_date DESC, id DESC`
-      : `SELECT * FROM epaper_editions WHERE status = 'published' ORDER BY edition_date DESC, id DESC`;
+      ? `SELECT id, to_char(edition_date, 'YYYY-MM-DD') AS edition_date_str, title, status, is_special, special_name FROM epaper_editions ORDER BY edition_date DESC, id DESC`
+      : `SELECT id, to_char(edition_date, 'YYYY-MM-DD') AS edition_date_str, title, status, is_special, special_name FROM epaper_editions WHERE status = 'published' ORDER BY edition_date DESC, id DESC`;
 
     const result = await pool.query(query);
     const rawEditions = result.rows.map(r => ({
       id: r.id,
-      editionDate: r.edition_date instanceof Date ? r.edition_date.toISOString().slice(0, 10) : String(r.edition_date),
+      editionDate: String(r.edition_date_str),
       title: r.title,
       status: r.status,
       isSpecial: Boolean(r.is_special),
@@ -55,9 +54,9 @@ export async function GET(request: NextRequest) {
       edition = activeList.find(item => item.editionDate === requestedDate) || rawEditions.find(item => item.editionDate === requestedDate) || null;
     }
 
-    if (!edition && activeList.length > 0) {
+    if (!edition && !requestedDate && activeList.length > 0) {
       edition = activeList[0];
-    } else if (!edition && rawEditions.length > 0) {
+    } else if (!edition && !requestedDate && rawEditions.length > 0) {
       edition = rawEditions[0];
     }
 
